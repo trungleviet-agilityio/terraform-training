@@ -1,0 +1,15 @@
+# Example Terraform Variables File
+# Copy this file to terraform.tfvars and customize the values
+
+# AWS Configuration
+aws_region = "eu-west-1"
+
+# Backend Configuration
+backend_bucket_name = "my-terraform-remote-backend-bucket"
+
+# Environment Configuration
+environment = "dev"  # Options: dev, staging, prod
+project_name = "my-project"
+
+# State Locking
+enable_state_locking = true
