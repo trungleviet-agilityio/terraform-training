@@ -1,7 +1,7 @@
 resource "aws_instance" "web" {
   # AMI ID NGINX  = ami-0dfee6e7eb44d480b (requires marketplace subscription)
   # AMI ID Ubuntu = ami-0652a081025ec9fee (Ubuntu 22.04 LTS)
-  ami                         = "ami-0652a081025ec9fee"
+  ami                         = "ami-0ef0fafba270833fc"
   associate_public_ip_address = true
   instance_type               = "t3.micro"
   subnet_id                   = aws_subnet.public.id
