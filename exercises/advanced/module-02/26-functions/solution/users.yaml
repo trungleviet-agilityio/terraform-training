@@ -1,0 +1,5 @@
+users:
+- name: Trung Le Viet
+  group: developers
+- name: Tung Tran
+  group: auditors
