@@ -1,0 +1,11 @@
+# Production Environment Backend Configuration
+# Usage: terraform init -backend-config=prod.s3.tfbackend
+#
+# ⚠️  IMPORTANT: Change the bucket name below to something unique!
+# S3 bucket names must be globally unique across ALL AWS accounts
+
+bucket         = "my-terraform-remote-backend-bucket-trungle"
+key            = "environments/prod/state.tfstate"
+region         = "us-east-1"
+dynamodb_table = "terraform-state-lock"
+encrypt        = true
