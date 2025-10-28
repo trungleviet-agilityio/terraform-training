@@ -70,7 +70,7 @@ Here is an overview of what the created solution should deploy:
 
       tags = {
         Project = local.project
-        Name    = "${local.project}-${each.index}"
+        Name    = "${local.project}-${count.index}"
       }
     }
 
