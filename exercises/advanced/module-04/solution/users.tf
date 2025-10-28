@@ -24,8 +24,9 @@ resource "aws_iam_user_login_profile" "users" {
   }
 }
 
-output "passwords" {
-  value = {
-    for user, user_login in aws_iam_user_login_profile.users : user => user_login.password
-  }
-}
+# This should not be outputted, as it contains sensitive information
+# output "passwords" {
+#   value = {
+#     for user, user_login in aws_iam_user_login_profile.users : user => user_login.password
+#   }
+# }
