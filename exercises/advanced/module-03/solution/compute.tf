@@ -25,9 +25,7 @@ data "aws_ami" "nginx" {
 
   filter {
     name   = "name"
-    # values = ["bitnami-nginx-1.25.4-*-linux-debian-12-x86_64-hvm-ebs-*"]
     values = ["bitnami-nginx-1.28.0-*-debian-12-amd64-*"]
-    # bitnami-nginx-1.28.0-r11-debian-12-amd64-f5774628-e459-457a-b058-3b513caefdee
   }
 
   filter {
