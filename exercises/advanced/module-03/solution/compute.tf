@@ -25,7 +25,7 @@ data "aws_ami" "nginx" {
 
   filter {
     name   = "name"
-    values = ["bitnami-nginx-1.28.0-*-debian-12-amd64-*"]
+    values = ["bitnami-nginx-1.28.0-*-linux-debian-12-x86_64-hvm-ebs-*"]
   }
 
   filter {
@@ -39,16 +39,25 @@ resource "aws_instance" "from_list" {
   ami           = local.ami_ids[var.ec2_instance_config_list[count.index].ami]
   instance_type = var.ec2_instance_config_list[count.index].instance_type
   subnet_id = aws_subnet.main[
-    count.index % length(aws_subnet.main)
+    var.ec2_instance_config_list[count.index].subnet_name
   ].id
-
-  # 0 % 2 = 0
-  # 1 % 2 = 1
-  # 2 % 2 = 0
-  # 3 % 2 = 1
 
   tags = {
     Name    = "${local.project}-${count.index}"
+    Project = local.project
+  }
+}
+
+resource "aws_instance" "from_map" {
+  # each.key   => holds the key of each key-value pair in the map 
+  # each.value => holds the value of each key-value pair in the map
+  for_each      = var.ec2_instance_config_map
+  ami           = local.ami_ids[each.value.ami]
+  instance_type = each.value.instance_type
+  subnet_id     = aws_subnet.main[each.value.subnet_name].id
+
+  tags = {
+    Name    = "${local.project}-${each.key}"
     Project = local.project
   }
 }
