@@ -3,6 +3,22 @@ locals {
   users_map = {
     for user_config in local.users_from_yaml : user_config.username => user_config.roles
   }
+
+  allowed_roles = toset(keys(local.role_policies))
+
+  invalid_role_pairs = flatten([
+    for u in local.users_from_yaml : [
+      for r in u.roles : {
+        username = u.username
+        role     = r
+      } if !contains(local.allowed_roles, r)
+    ]
+  ])
+}
+
+locals {
+  # Fail fast if any role in YAML is not in the allowed set
+  _validate_roles = length(local.invalid_role_pairs) == 0 ? true : (throw("Invalid roles in user-roles.yaml: " || jsonencode(local.invalid_role_pairs)))
 }
 
 resource "aws_iam_user" "users" {
