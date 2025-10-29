@@ -46,6 +46,8 @@ resource "aws_instance" "this" {
   }
 }
 
+# This will not stop the resource from being created, but it will generate a warning
+# if the resource does not have a CostCenter tag
 check "cost_center_check" {
   assert {
     condition     = can(aws_instance.this.tags.CostCenter != "")
