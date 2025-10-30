@@ -1,0 +1,9 @@
+aws_region   = "us-east-1"
+project_name = "tt-practice"
+environment  = "prod"
+deploy_mode  = "container"
+tags = {
+  Project    = "terraform-training"
+  CostCenter = "training"
+  Owner      = "your-alias"
+}
