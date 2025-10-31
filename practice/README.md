@@ -40,19 +40,28 @@ Foundation resources shared across all environments:
 - Optional KMS CMK for encryption
 - Base IAM roles and policies
 - CloudWatch log retention settings
-- AWS Secrets Manager secrets (for sensitive configuration)
+- **S3 bucket for Terraform state backend**
+- **DynamoDB table for Terraform state locking**
+- **AWS Secrets Manager secrets** (create secrets)
+
+**Note**: DynamoDB table in `10_core` is for Terraform state locking (infrastructure-for-Terraform), not application data. Application DynamoDB tables should be created in `20_infra` (shared) or `30_app` (app-specific).
 
 ### 20_infra
 Platform services that applications depend on:
 - API Gateway HTTP API
 - SQS queues (standard + DLQ)
 - EventBridge schedules
+- **Application DynamoDB tables** (if shared across applications)
+- **Application S3 buckets** (if shared across applications)
 
 ### 30_app
 Application workloads:
 - Lambda functions (FastAPI API, SQS worker, cron producer)
 - Event source mappings and triggers
 - Function-specific IAM roles
+- Lambda Layers (for shared dependencies)
+- **Application DynamoDB tables** (if app-specific)
+- **Application S3 buckets** (if app-specific)
 
 ## Environments
 
@@ -106,6 +115,7 @@ The `bin/cb` CLI will provide shortcuts for build/test/deploy workflows (to be i
 - **Architecture**: `shared/docs/architecture.md`
 - **CI/CD**: `shared/docs/ci-cd.md`
 - **State Bootstrap**: `shared/docs/remote-state.md`
+- **Layer Structure**: `shared/docs/layer-structure.md` (Understanding layer organization)
 - **Diagram**: `shared/diagrams/architecture.png`
 
 ## Next Steps

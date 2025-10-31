@@ -27,8 +27,13 @@ deploy/
 - Base IAM roles and policies
 - CloudWatch log retention settings
 - AWS account/region data sources
+- **S3 bucket for Terraform state backend**
+- **DynamoDB table for Terraform state locking**
+- **AWS Secrets Manager secrets** (create secrets)
 
 **Deployment Order**: Must be deployed **first** before other layers.
+
+**Note**: DynamoDB table in `10_core` is for Terraform state locking (infrastructure-for-Terraform), not application data. Application DynamoDB tables should be created in `20_infra` (shared) or `30_app` (app-specific).
 
 ### 20_infra - Platform Services Layer
 **Purpose**: Platform services that applications depend on.
@@ -37,6 +42,8 @@ deploy/
 - API Gateway HTTP API
 - SQS queues (standard + DLQ)
 - EventBridge schedules
+- **Application DynamoDB tables** (if shared across applications)
+- **Application S3 buckets** (if shared across applications)
 
 **Dependencies**: Requires `10_core` outputs (tags, account ID, region).
 
@@ -48,6 +55,8 @@ deploy/
 - Lambda Layers (for shared dependencies)
 - Event source mappings and triggers
 - Function-specific IAM roles
+- **Application DynamoDB tables** (if app-specific)
+- **Application S3 buckets** (if app-specific)
 
 **Dependencies**: Requires `10_core` and `20_infra` outputs.
 
