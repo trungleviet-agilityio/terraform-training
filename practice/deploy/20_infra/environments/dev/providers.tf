@@ -9,12 +9,13 @@ terraform {
   }
 
   # S3 backend configuration
+  # Using the same state backend bucket created by 10_core layer
   backend "s3" {
-    bucket         = "tt-practice-tf-state-<unique>"
+    bucket         = "tt-practice-tf-state-dev-057336397237"
     key            = "infra/terraform.tfstate"
     region         = "ap-southeast-1" # Singapore
     encrypt        = true
-    # dynamodb_table = "tt-practice-tf-locks" # Consider using this for locking the state file
+    dynamodb_table = "tt-practice-tf-locks"
   }
 }
 
