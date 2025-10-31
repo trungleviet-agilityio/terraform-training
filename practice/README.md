@@ -40,6 +40,7 @@ Foundation resources shared across all environments:
 - Optional KMS CMK for encryption
 - Base IAM roles and policies
 - CloudWatch log retention settings
+- AWS Secrets Manager secrets (for sensitive configuration)
 
 ### 20_infra
 Platform services that applications depend on:
@@ -72,15 +73,7 @@ Environments import their respective `main/` modules and pass environment-specif
 
 ### Bootstrap Remote State
 
-Create S3 bucket and DynamoDB table for Terraform state:
-
-```bash
-# Bootstrap script to be created
-./deploy/scripts/bootstrap_state.sh \
-  --bucket tt-practice-tf-state-<unique> \
-  --table tt-practice-tf-locks \
-  --region us-east-1
-```
+S3 bucket and DynamoDB table for Terraform state will be created via Terraform modules in `10_core/modules/` (to be implemented). See `shared/docs/remote-state.md` for details.
 
 ### Deploy Infrastructure
 
@@ -112,6 +105,7 @@ The `bin/cb` CLI will provide shortcuts for build/test/deploy workflows (to be i
 
 - **Architecture**: `shared/docs/architecture.md`
 - **CI/CD**: `shared/docs/ci-cd.md`
+- **State Bootstrap**: `shared/docs/remote-state.md`
 - **Diagram**: `shared/diagrams/architecture.png`
 
 ## Next Steps

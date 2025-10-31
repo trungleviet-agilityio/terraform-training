@@ -141,7 +141,82 @@ Each environment:
 - **Encryption**: Optional KMS CMK for encrypting sensitive data
 - **State Security**: Terraform state encrypted in S3 with versioning enabled
 - **Network Security**: API Gateway provides HTTPS endpoints
-- **Secret Management**: Use AWS Secrets Manager or Parameter Store for sensitive configuration
+- **Secret Management**: AWS Secrets Manager for storing and managing secrets
+
+### Secret Management Strategy
+
+Secrets are managed using a layered approach with AWS Secrets Manager:
+
+#### Layer Responsibilities
+
+| Layer | Secret Handling | Examples |
+|-------|----------------|----------|
+| **10_core** | Create and manage Secrets Manager secrets | `aws_secretsmanager_secret` + `aws_secretsmanager_secret_version` |
+| **20_infra** | Grant access permissions via IAM policies | Lambda execution roles get `secretsmanager:GetSecretValue` |
+| **30_app** | Consume secrets at runtime (env vars or SDK) | Lambda reads `DATABASE_URL`, `API_KEY`, etc. |
+
+#### Why This Pattern Works
+
+1. **Secrets created once** in `10_core` - Single source of truth
+2. **Access granted** in `20_infra` - Least-privilege IAM policies
+3. **Secrets consumed** in `30_app` - Runtime access via environment variables or AWS SDK
+
+#### Secret Examples
+
+**10_core** creates secrets:
+```hcl
+resource "aws_secretsmanager_secret" "database_url" {
+  name        = "${var.project_name}-${var.environment}-database-url"
+  description = "Database connection string"
+}
+
+resource "aws_secretsmanager_secret_version" "database_url" {
+  secret_id = aws_secretsmanager_secret.database_url.id
+  secret_string = jsonencode({
+    host     = var.database_host
+    port     = 5432
+    database = var.database_name
+    username = var.database_user
+    password = var.database_password
+  })
+}
+```
+
+**20_infra** grants Lambda access:
+```hcl
+resource "aws_iam_role_policy" "lambda_secrets" {
+  role = aws_iam_role.lambda.id
+  policy = jsonencode({
+    Statement = [{
+      Effect = "Allow"
+      Action = ["secretsmanager:GetSecretValue"]
+      Resource = [
+        module.core.database_secret_arn
+      ]
+    }]
+  })
+}
+```
+
+**30_app** consumes secrets:
+```hcl
+resource "aws_lambda_function" "api" {
+  # ... other config ...
+  environment {
+    variables = {
+      DATABASE_SECRET_ARN = module.core.database_secret_arn
+      # Lambda reads secret at runtime using AWS SDK
+    }
+  }
+}
+```
+
+**Best Practices**:
+- Never store secrets in Terraform variables or code
+- Use Secrets Manager for all sensitive data (API keys, database credentials, tokens)
+- Rotate secrets regularly
+- Use separate secrets per environment
+- Grant access only to resources that need it
 
 ## State & Security
 
