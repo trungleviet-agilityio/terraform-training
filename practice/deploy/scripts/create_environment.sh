@@ -22,7 +22,7 @@ if [ ! -d "$SOURCE_ENV_DIR" ]; then
   exit 1
 fi
 
-if [ -d "$TARGET_ENV_DIR" ]; then
+if [ -d "$TARGET_ENV_DIR" ] && [ "$(ls -A "$TARGET_ENV_DIR" 2>/dev/null | grep -v '^\.gitkeep$' | wc -l)" -gt 0 ]; then
   echo "Environment '${ENV_NAME}' already exists in ${LAYER}."
   exit 1
 fi
@@ -30,21 +30,46 @@ fi
 echo "Creating new environment '${ENV_NAME}' for layer '${LAYER}'..."
 mkdir -p "$TARGET_ENV_DIR"
 
-# Copy files from dev environment
-cp -r "$SOURCE_ENV_DIR"/* "$TARGET_ENV_DIR"/
+# Copy files from dev environment (excluding .gitkeep if exists)
+find "$SOURCE_ENV_DIR" -type f ! -name '.gitkeep' -exec cp {} "$TARGET_ENV_DIR/" \;
 
-# Update environment name in terraform.tfvars
-sed -i.bak "s/environment *= *\"dev\"/environment = \"${ENV_NAME}\"/" "$TARGET_ENV_DIR/terraform.tfvars"
-rm "$TARGET_ENV_DIR/terraform.tfvars.bak"
+# Update environment name in terraform.tfvars (if file exists)
+if [ -f "$TARGET_ENV_DIR/terraform.tfvars.example" ]; then
+  if [ -f "$TARGET_ENV_DIR/terraform.tfvars" ]; then
+    sed -i.bak "s/environment *= *\"dev\"/environment = \"${ENV_NAME}\"/" "$TARGET_ENV_DIR/terraform.tfvars"
+    rm -f "$TARGET_ENV_DIR/terraform.tfvars.bak"
+  fi
+  sed -i.bak "s/environment *= *\"dev\"/environment = \"${ENV_NAME}\"/" "$TARGET_ENV_DIR/terraform.tfvars.example"
+  rm -f "$TARGET_ENV_DIR/terraform.tfvars.example.bak"
+fi
 
-# Update backend key
-LAYER_KEY=$(basename "$LAYER")
-sed -i.bak "s/key *= *\".*\/terraform.tfstate\"/key = \"${LAYER_KEY}\/${ENV_NAME}\/terraform.tfstate\"/" "$TARGET_ENV_DIR/backend.tfvars"
-rm "$TARGET_ENV_DIR/backend.tfvars.bak"
+# Determine layer key for state path
+case "$LAYER" in
+  *10_core*|*core*)
+    LAYER_KEY="core"
+    ;;
+  *20_infra*|*infra*)
+    LAYER_KEY="infra"
+    ;;
+  *30_app*|*app*)
+    LAYER_KEY="app"
+    ;;
+  *)
+    # Extract layer number/name
+    LAYER_KEY=$(basename "$LAYER" | sed 's/^[0-9]*_//')
+    ;;
+esac
+
+# Update state key in providers.tf
+if [ -f "$TARGET_ENV_DIR/providers.tf" ]; then
+  sed -i.bak "s|key *= *\".*\"|key            = \"${LAYER_KEY}/terraform.tfstate\"|" "$TARGET_ENV_DIR/providers.tf"
+  rm -f "$TARGET_ENV_DIR/providers.tf.bak"
+fi
 
 echo "Environment '${ENV_NAME}' created successfully in ${LAYER}."
 echo ""
 echo "Next steps:"
-echo "1. Review backend.tfvars in ${TARGET_ENV_DIR}"
-echo "2. Initialize with: cd ${TARGET_ENV_DIR} && terraform init -backend-config=backend.tfvars"
-echo "3. Plan with: terraform plan -var-file=terraform.tfvars"
+echo "1. Review providers.tf in ${TARGET_ENV_DIR} (update bucket name if needed)"
+echo "2. Copy terraform.tfvars.example to terraform.tfvars and update values"
+echo "3. Initialize with: cd ${TARGET_ENV_DIR} && terraform init"
+echo "4. Plan with: terraform plan -var-file=terraform.tfvars"
