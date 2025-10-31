@@ -1,45 +1,161 @@
-## Serverless Architecture Overview
+# Serverless Architecture Overview
 
 This practice implements a production-style AWS serverless backend with clear layering and multi-environment composition.
 
-Diagram: see `practice/shared/diagrams/architecture.png` (your drawn diagram).
+**Architecture Diagram**: See `diagrams/architecture.png`
 
-### Layers
-- 10_core: shared foundation (tags, log retention, optional KMS; artifacts bucket planned).
-- 20_infra: platform services (API Gateway HTTP API, SQS + DLQ, EventBridge rule, ECR repo).
-- 30_app: workloads (FastAPI API Lambda; SQS Worker Lambda; Cron Producer Lambda) and event wiring.
+## Architecture Layers
 
-Environments compose these layers in `practice/envs/{dev,stage,prod}`.
+The infrastructure is organized into three layers, each deployed independently:
 
-### Components in the Diagram
-- Route53 DNS (optional/custom domain for API; can be added later).
-- API Gateway: public entrypoint routing to the API Lambda.
-- Lambda Functions:
-  - FastAPI API handler (zip + layer or container image from ECR).
-  - SQS Worker consuming messages from the queue.
-  - Cron Producer triggered by EventBridge to enqueue tasks.
-- DynamoDB: optional application persistence (pattern shown in diagram; can be added in a later task).
-- SQS: standard queue with DLQ for failed messages.
-- EventBridge: cron-based scheduler invoking the Producer Lambda.
-- CloudWatch: logs and metrics for all functions and services.
+### 10_core - Foundation Layer
+Shared foundation resources:
+- Standard tags and naming conventions
+- Optional KMS CMK for encryption
+- Base IAM roles and policies
+- CloudWatch log retention settings
+- AWS account/region data sources
 
-### Packaging Strategies
-- Zip + Lambda Layer for smaller dependencies to keep function zip lean.
-- Container Image (ECR) for large/native dependencies; tagged by commit SHA.
+**Deployment Order**: Must be deployed **first** before other layers.
 
-### State & Security
-- Terraform remote state in S3 with DynamoDB state locking (bootstrapped outside Terraform backends).
-- IAM roles with least privilege per function; GitHub Actions OIDC for CI/CD access.
+### 20_infra - Platform Services Layer
+Platform services that applications depend on:
+- API Gateway HTTP API
+- SQS queues (standard + DLQ)
+- EventBridge schedules
 
-### Data Flow
-1) User calls API Gateway → API Lambda processes request; may read/write DynamoDB and/or enqueue messages to SQS.
-2) SQS delivers messages to Worker Lambda via event source mapping.
-3) EventBridge (cron) regularly triggers Producer Lambda to enqueue scheduled tasks to SQS.
+**Dependencies**: Requires `10_core` outputs (tags, account ID, region).
 
-### Roadmap (Incremental Enhancements)
-- Custom domain + ACM (API Gateway) via Route53.
-- VPC integration for Lambdas (private subnets) if needed.
-- WAF in front of API Gateway.
-- Additional persistence (RDS/ElastiCache) if required by workloads.
+### 30_app - Application Layer
+Application workloads and compute resources:
+- Lambda functions (FastAPI API, SQS worker, cron producer)
+- Event source mappings and triggers
+- Function-specific IAM roles
+- Lambda layers (for zip deployment mode)
 
+**Dependencies**: Requires `10_core` and `20_infra` outputs.
 
+## Component Architecture
+
+### Request Flow
+
+```
+User
+  ↓
+API Gateway (HTTP API)
+  ↓
+Lambda (FastAPI API)
+  ├─→ DynamoDB (optional persistence)
+  └─→ SQS Queue
+       ↓
+       Lambda (SQS Worker)
+```
+
+### Scheduled Flow
+
+```
+EventBridge (Cron Schedule)
+  ↓
+Lambda (Producer)
+  ↓
+SQS Queue
+  ↓
+Lambda (SQS Worker)
+```
+
+### Packaging Strategy
+
+**Zip + Lambda Layer**:
+- Function code packaged as zip file
+- Dependencies packaged as Lambda Layer
+- Lambda Layer shared across multiple functions for efficiency
+- Suitable for Python dependencies and standard libraries
+- Function zip size limit: 50MB (uncompressed)
+- Layer size limit: 250MB (uncompressed)
+
+## AWS Services Used
+
+### Compute
+- **Lambda**: Serverless functions for API, workers, and scheduled tasks
+- **Lambda Layers**: Shared code and dependencies packaged as reusable layers
+
+### Networking & API
+- **API Gateway**: HTTP API endpoint for public access
+- **Route53**: DNS management (optional, for custom domains)
+
+### Messaging & Events
+- **SQS**: Message queue for asynchronous processing
+  - Standard queue for reliable message delivery
+  - Dead Letter Queue (DLQ) for failed messages
+- **EventBridge**: Event-driven scheduling (cron-based)
+
+### Storage & Database
+- **DynamoDB**: NoSQL database for application data (optional)
+- **S3**: Terraform state storage (backend)
+
+### Security & Access
+- **IAM**: Roles and policies for Lambda functions
+- **KMS**: Customer-managed keys for encryption (optional)
+
+### Observability
+- **CloudWatch**: Logs and metrics for all services
+- **CloudWatch Logs**: Centralized logging
+
+### State Management
+- **S3**: Remote state storage
+- **DynamoDB**: State locking to prevent concurrent modifications
+
+## Data Flow
+
+1. **API Request Flow**:
+   - User sends HTTP request to API Gateway
+   - API Gateway routes to FastAPI Lambda function
+   - Lambda processes request (may read/write DynamoDB)
+   - Lambda may enqueue messages to SQS for async processing
+
+2. **Asynchronous Processing**:
+   - SQS delivers messages to Worker Lambda via event source mapping
+   - Worker Lambda processes messages (may write to DynamoDB)
+   - Failed messages are sent to DLQ after max retries
+
+3. **Scheduled Tasks**:
+   - EventBridge triggers Producer Lambda on schedule (cron)
+   - Producer Lambda enqueues tasks to SQS
+   - Tasks are processed by Worker Lambda
+
+## Environment Structure
+
+Each layer maintains its own environment configurations:
+- `deploy/{layer}/environments/dev/`
+- `deploy/{layer}/environments/stage/`
+- `deploy/{layer}/environments/prod/`
+
+Each environment:
+- Maintains separate Terraform state
+- Uses environment-specific variables
+- Can have different resource configurations
+
+## Security Considerations
+
+- **IAM Least Privilege**: Each Lambda function has minimal required permissions
+- **Encryption**: Optional KMS CMK for encrypting sensitive data
+- **State Security**: Terraform state encrypted in S3 with versioning enabled
+- **Network Security**: API Gateway provides HTTPS endpoints
+- **Secret Management**: Use AWS Secrets Manager or Parameter Store for sensitive configuration
+
+## State & Security
+
+- **Remote State**: Stored in S3 with DynamoDB state locking
+- **State Isolation**: Each layer maintains separate state files
+- **Backend Configuration**: Configured per environment via `backend.tfvars`
+- **CI/CD Access**: GitHub Actions uses OIDC to assume IAM roles (no static credentials)
+
+## Roadmap (Future Enhancements)
+
+- **Custom Domain**: Route53 + ACM for custom API Gateway domain
+- **VPC Integration**: Private subnets for Lambda functions if needed
+- **WAF**: Web Application Firewall in front of API Gateway
+- **Additional Persistence**: RDS or ElastiCache if required
+- **Multi-Region**: Disaster recovery and global distribution
+- **Monitoring**: CloudWatch dashboards and alarms
+- **X-Ray**: Distributed tracing for Lambda functions

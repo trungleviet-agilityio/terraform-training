@@ -1,8 +1,3 @@
-output "common_tags" {
-  value       = local.common_tags
-  description = "Standard tags applied by core layer."
-}
-
 output "kms_key_arn" {
   value       = try(aws_kms_key.this[0].arn, null)
   description = "ARN of the optional KMS key. Null if not created."
