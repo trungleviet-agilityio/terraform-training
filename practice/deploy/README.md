@@ -60,23 +60,9 @@ deploy/
    aws configure
    ```
 
-2. **Remote State**: Bootstrap S3 bucket and DynamoDB table for Terraform state
-   ```bash
-   # Script to be created
-   ./scripts/bootstrap_state.sh \
-     --bucket tt-practice-tf-state-<unique> \
-     --table tt-practice-tf-locks \
-     --region us-east-1
-   ```
+2. **Remote State**: S3 bucket and DynamoDB table will be created via Terraform modules in `10_core/modules/` (to be implemented)
 
-3. **Backend Configuration**: Create `backend.tfvars` files for each environment
-   ```hcl
-   bucket         = "tt-practice-tf-state-<unique>"
-   dynamodb_table = "tt-practice-tf-locks"
-   key            = "10_core/dev/terraform.tfstate"
-   region         = "us-east-1"
-   encrypt        = true
-   ```
+3. **Backend Configuration**: Each environment has a `providers.tf` file with backend and provider configuration
 
 ### Deployment Steps
 
@@ -87,8 +73,8 @@ Deploy layers in sequential order: **10_core → 20_infra → 30_app**
 ```bash
 cd 10_core/environments/dev
 
-# Initialize Terraform with backend configuration
-terraform init -backend-config=backend.tfvars
+# Initialize Terraform (backend config is in providers.tf)
+terraform init
 
 # Review the plan
 terraform plan -var-file=terraform.tfvars
@@ -142,22 +128,24 @@ Use the helper script to scaffold a new environment for any layer:
 This will:
 - Copy `dev` environment configuration as a template
 - Update environment name in `terraform.tfvars`
-- Update backend state key in `backend.tfvars`
+- Update state key in `providers.tf` backend configuration
 
 #### Environment Variables
 
 Each environment requires:
-- `terraform.tfvars`: Environment-specific variables
-- `backend.tfvars`: Backend configuration (S3 bucket, DynamoDB table)
+- `providers.tf`: Backend and provider configuration
+- `terraform.tfvars`: Environment-specific variables (use `.example` as template)
 - `variables.tf`: Variable definitions (shared across environments)
+- `main.tf`: Module instantiation
+- `outputs.tf`: Environment outputs
 
 ## Backend Configuration
 
 Each layer maintains its own Terraform state file:
 
-- **10_core**: `10_core/<env>/terraform.tfstate`
-- **20_infra**: `20_infra/<env>/terraform.tfstate`
-- **30_app**: `30_app/<env>/terraform.tfstate`
+- **10_core**: `core/terraform.tfstate`
+- **20_infra**: `infra/terraform.tfstate`
+- **30_app**: `app/terraform.tfstate`
 
 This separation allows:
 - Independent deployment of each layer
@@ -170,18 +158,9 @@ This separation allows:
 
 ```
 s3://terraform-state-bucket/
-├── 10_core/
-│   ├── dev/terraform.tfstate
-│   ├── stage/terraform.tfstate
-│   └── prod/terraform.tfstate
-├── 20_infra/
-│   ├── dev/terraform.tfstate
-│   ├── stage/terraform.tfstate
-│   └── prod/terraform.tfstate
-└── 30_app/
-    ├── dev/terraform.tfstate
-    ├── stage/terraform.tfstate
-    └── prod/terraform.tfstate
+├── core/terraform.tfstate
+├── infra/terraform.tfstate
+└── app/terraform.tfstate
 ```
 
 ### State Locking
@@ -198,15 +177,14 @@ Each layer follows this structure:
 ```
 <layer>/
 ├── main/                    # Main module implementation
-│   ├── main.tf              # Resource definitions
+│   ├── main.tf              # Resource definitions and module imports
 │   ├── variables.tf         # Input variables
 │   ├── outputs.tf           # Output values
 │   ├── locals.tf            # Local values
-│   └── versions.tf          # Provider/terraform versions
+│   └── versions.tf          # Provider/terraform versions (optional)
 ├── environments/            # Environment-specific configs
 │   └── <env>/
-│       ├── backend.tf       # Backend configuration
-│       ├── providers.tf      # Provider configuration
+│       ├── providers.tf     # Backend and provider configuration
 │       ├── main.tf           # Module instantiation
 │       ├── variables.tf     # Variable definitions
 │       ├── outputs.tf        # Environment outputs
@@ -229,9 +207,72 @@ Creates a new environment configuration by copying from `dev`:
 ./scripts/create_environment.sh 30_app staging
 ```
 
-### `scripts/bootstrap_state.sh` (to be created)
+## Secret Management
 
-Initializes remote state backend (S3 + DynamoDB).
+Secrets follow a layered approach:
+
+1. **10_core**: Creates Secrets Manager secrets
+   - Define secrets with `aws_secretsmanager_secret`
+   - Store secret values with `aws_secretsmanager_secret_version`
+   - Output secret ARNs for use in other layers
+
+2. **20_infra**: Grants access permissions
+   - IAM policies grant `secretsmanager:GetSecretValue` permission
+   - Attach policies to Lambda execution roles
+   - Reference secret ARNs from `10_core` outputs
+
+3. **30_app**: Consumes secrets at runtime
+   - Lambda functions read secrets via AWS SDK
+   - Or pass secret ARNs as environment variables
+   - Never embed secret values directly
+
+### Example Secret Creation (10_core)
+
+```hcl
+resource "aws_secretsmanager_secret" "api_key" {
+  name        = "${var.project_name}-${var.environment}-api-key"
+  description = "API key for external service"
+}
+
+resource "aws_secretsmanager_secret_version" "api_key" {
+  secret_id = aws_secretsmanager_secret.api_key.id
+  secret_string = var.api_key_value  # Passed via CI/CD secrets
+}
+```
+
+### Example Access Grant (20_infra)
+
+```hcl
+resource "aws_iam_role_policy" "lambda_secrets" {
+  role = aws_iam_role.lambda.id
+  policy = jsonencode({
+    Statement = [{
+      Effect = "Allow"
+      Action = ["secretsmanager:GetSecretValue"]
+      Resource = [module.core.api_key_secret_arn]
+    }]
+  })
+}
+```
+
+### Example Secret Consumption (30_app)
+
+```python
+import boto3
+import json
+
+def lambda_handler(event, context):
+    client = boto3.client('secretsmanager')
+    secret_arn = os.environ['API_KEY_SECRET_ARN']
+    
+    response = client.get_secret_value(SecretId=secret_arn)
+    api_key = json.loads(response['SecretString'])
+    
+    # Use api_key safely
+    ...
+```
+
+**See**: `shared/docs/architecture.md` for detailed secret management strategy.
 
 ## Best Practices
 
@@ -243,6 +284,7 @@ Initializes remote state backend (S3 + DynamoDB).
    - `.terraform/` directories
 4. **Environment isolation**: Keep environment-specific values in `terraform.tfvars`
 5. **State management**: Never manually edit state files; use Terraform commands
+6. **Secret management**: Use AWS Secrets Manager; never store secrets in code or variables (see Secret Management section below)
 
 ## Troubleshooting
 
