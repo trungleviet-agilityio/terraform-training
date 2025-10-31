@@ -1,3 +1,5 @@
+# This file is used to define the variables for the development environment.
+
 variable "aws_region" {
   type        = string
   description = "AWS region."

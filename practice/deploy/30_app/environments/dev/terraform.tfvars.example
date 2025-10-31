@@ -1,7 +1,7 @@
 aws_region   = "us-east-1"
 project_name = "tt-practice"
-environment  = "prod"
-deploy_mode  = "container"
+environment  = "dev"
+deploy_mode  = "zip"
 tags = {
   Project    = "terraform-training"
   CostCenter = "training"
