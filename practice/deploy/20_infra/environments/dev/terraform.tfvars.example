@@ -1,6 +1,20 @@
 aws_region   = "ap-southeast-1"
 project_name = "tt-practice"
 environment  = "dev"
+
+# API Gateway Configuration
+# Note: Set these after Lambda function is created in 30_app layer
+# For now, leave empty to create API Gateway without Lambda integration
+# api_lambda_function_arn  = ""
+# api_lambda_function_name = ""
+create_api_gateway = false  # Set to true after Lambda is created
+
+# SQS Configuration
+sqs_queue_name = "main"      # Queue name (without prefix)
+sqs_enable_dlq = true         # Enable Dead Letter Queue
+create_sqs     = true         # Create SQS queues
+
+# Additional tags
 tags = {
   CostCenter = "training"
   Owner      = "your-alias"
