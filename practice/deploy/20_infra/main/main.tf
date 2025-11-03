@@ -30,3 +30,20 @@ module "sqs" {
 
   tags = local.common_tags
 }
+
+# EventBridge Schedule (Cron Job)
+# Note: Requires Lambda function ARN/name from 30_app layer
+# Set create_eventbridge_schedule = false if Lambda is not yet created
+module "eventbridge_schedule" {
+  count  = var.create_eventbridge_schedule && var.eventbridge_schedule_expression != "" && var.eventbridge_lambda_function_arn != "" ? 1 : 0
+  source = "../modules/eventbridge"
+
+  project_name         = var.project_name
+  environment          = var.environment
+  schedule_name        = var.eventbridge_schedule_name
+  schedule_expression  = var.eventbridge_schedule_expression
+  lambda_function_arn  = var.eventbridge_lambda_function_arn
+  lambda_function_name = var.eventbridge_lambda_function_name
+
+  tags = local.common_tags
+}

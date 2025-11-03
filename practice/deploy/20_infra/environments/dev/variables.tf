@@ -54,6 +54,36 @@ variable "create_sqs" {
   default     = true
 }
 
+variable "eventbridge_schedule_name" {
+  description = "Name of the EventBridge schedule (without prefix). Default: 'producer'"
+  type        = string
+  default     = "producer"
+}
+
+variable "eventbridge_schedule_expression" {
+  description = "Schedule expression (cron or rate). Example: 'cron(0 12 * * ? *)' for daily at 12:00 UTC"
+  type        = string
+  default     = ""
+}
+
+variable "eventbridge_lambda_function_arn" {
+  description = "ARN of the Lambda function for EventBridge schedule. Leave empty if Lambda not yet created."
+  type        = string
+  default     = ""
+}
+
+variable "eventbridge_lambda_function_name" {
+  description = "Name of the Lambda function for EventBridge schedule. Leave empty if Lambda not yet created."
+  type        = string
+  default     = ""
+}
+
+variable "create_eventbridge_schedule" {
+  description = "Whether to create EventBridge schedule. Set to false if Lambda is not yet created."
+  type        = bool
+  default     = true
+}
+
 variable "tags" {
   description = "Additional tags to apply to resources"
   type        = map(string)

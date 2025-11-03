@@ -62,3 +62,33 @@ output "sqs_dlq_name" {
   value       = module.main.sqs_dlq_name
   description = "Name of the Dead Letter Queue."
 }
+
+output "sqs_dlq_alarm_arn" {
+  value       = module.main.sqs_dlq_alarm_arn
+  description = "ARN of the CloudWatch alarm for DLQ messages."
+}
+
+output "sqs_dlq_alarm_name" {
+  value       = module.main.sqs_dlq_alarm_name
+  description = "Name of the CloudWatch alarm for DLQ messages."
+}
+
+output "eventbridge_schedule_arn" {
+  value       = module.main.eventbridge_schedule_arn
+  description = "ARN of the EventBridge schedule."
+}
+
+output "eventbridge_schedule_name" {
+  value       = module.main.eventbridge_schedule_name
+  description = "Name of the EventBridge schedule."
+}
+
+output "eventbridge_schedule_state" {
+  value       = module.main.eventbridge_schedule_state
+  description = "State of the EventBridge schedule."
+}
+
+output "eventbridge_iam_role_arn" {
+  value       = module.main.eventbridge_iam_role_arn
+  description = "ARN of the IAM role used by EventBridge."
+}

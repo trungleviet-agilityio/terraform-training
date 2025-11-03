@@ -14,6 +14,14 @@ sqs_queue_name = "main"      # Queue name (without prefix)
 sqs_enable_dlq = true         # Enable Dead Letter Queue
 create_sqs     = true         # Create SQS queues
 
+# EventBridge Schedule Configuration
+# Note: Set these after Lambda function is created in 30_app layer
+# eventbridge_schedule_name       = "producer"
+# eventbridge_schedule_expression = "cron(0 12 * * ? *)"  # Daily at 12:00 PM UTC
+# eventbridge_lambda_function_arn = ""
+# eventbridge_lambda_function_name = ""
+create_eventbridge_schedule = false  # Set to true after Lambda is created
+
 # Additional tags
 tags = {
   CostCenter = "training"

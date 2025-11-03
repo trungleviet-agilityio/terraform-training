@@ -62,3 +62,33 @@ output "sqs_dlq_name" {
   value       = length(module.sqs) > 0 ? module.sqs[0].dlq_name : null
   description = "Name of the Dead Letter Queue. Null if not created or DLQ disabled."
 }
+
+output "sqs_dlq_alarm_arn" {
+  value       = length(module.sqs) > 0 ? module.sqs[0].dlq_alarm_arn : null
+  description = "ARN of the CloudWatch alarm for DLQ messages. Null if not created or alarm disabled."
+}
+
+output "sqs_dlq_alarm_name" {
+  value       = length(module.sqs) > 0 ? module.sqs[0].dlq_alarm_name : null
+  description = "Name of the CloudWatch alarm for DLQ messages. Null if not created or alarm disabled."
+}
+
+output "eventbridge_schedule_arn" {
+  value       = length(module.eventbridge_schedule) > 0 ? module.eventbridge_schedule[0].schedule_arn : null
+  description = "ARN of the EventBridge schedule. Null if not created."
+}
+
+output "eventbridge_schedule_name" {
+  value       = length(module.eventbridge_schedule) > 0 ? module.eventbridge_schedule[0].schedule_name : null
+  description = "Name of the EventBridge schedule. Null if not created."
+}
+
+output "eventbridge_schedule_state" {
+  value       = length(module.eventbridge_schedule) > 0 ? module.eventbridge_schedule[0].schedule_state : null
+  description = "State of the EventBridge schedule. Null if not created."
+}
+
+output "eventbridge_iam_role_arn" {
+  value       = length(module.eventbridge_schedule) > 0 ? module.eventbridge_schedule[0].iam_role_arn : null
+  description = "ARN of the IAM role used by EventBridge. Null if not created."
+}
