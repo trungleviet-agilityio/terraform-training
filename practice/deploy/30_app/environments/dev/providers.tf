@@ -23,13 +23,10 @@ provider "aws" {
   region = var.aws_region
 
   default_tags {
-    tags = merge(
-      {
-        Environment = var.environment
-        Project     = var.project_name
-        ManagedBy   = "Terraform"
-      },
-      var.tags
-    )
+    tags = {
+      Environment = var.environment
+      Project     = var.project_name
+      ManagedBy   = "Terraform"
+    }
   }
 }
