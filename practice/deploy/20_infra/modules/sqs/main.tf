@@ -94,5 +94,33 @@ resource "aws_sqs_queue_policy" "dlq" {
   })
 }
 
+# CloudWatch Alarm for DLQ messages
+resource "aws_cloudwatch_metric_alarm" "dlq_messages" {
+  count = var.enable_dlq && var.enable_dlq_alarm ? 1 : 0
+
+  alarm_name          = "${local.dlq_name}-messages-alarm"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = var.dlq_alarm_evaluation_periods
+  metric_name         = "ApproximateNumberOfMessagesVisible"
+  namespace           = "AWS/SQS"
+  period              = var.dlq_alarm_period
+  statistic           = "Sum"
+  threshold           = var.dlq_alarm_threshold
+  alarm_description   = "Alert when messages appear in Dead Letter Queue"
+  alarm_actions       = var.dlq_alarm_sns_topic_arn != null ? [var.dlq_alarm_sns_topic_arn] : []
+
+  dimensions = {
+    QueueName = aws_sqs_queue.dlq[0].name
+  }
+
+  tags = merge(
+    var.tags,
+    {
+      Name    = "${local.dlq_name}-messages-alarm"
+      Purpose = "DLQ Message Alarm"
+    }
+  )
+}
+
 # Data source for account ID
 data "aws_caller_identity" "current" {}

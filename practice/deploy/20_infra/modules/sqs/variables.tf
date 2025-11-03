@@ -27,9 +27,9 @@ variable "message_retention_seconds" {
 }
 
 variable "visibility_timeout_seconds" {
-  description = "The visibility timeout for the queue (default: 30 seconds)"
+  description = "The visibility timeout for the queue (default: 360 seconds - AWS recommends 6x Lambda timeout for event source mapping)"
   type        = number
-  default     = 30
+  default     = 360  # 6 minutes - recommended for Lambda functions with up to 60s timeout
 }
 
 variable "receive_wait_time_seconds" {
@@ -48,6 +48,36 @@ variable "dlq_message_retention_seconds" {
   description = "The number of seconds to retain messages in the DLQ (default: 14 days)"
   type        = number
   default     = 1209600  # 14 days
+}
+
+variable "enable_dlq_alarm" {
+  description = "Whether to create a CloudWatch alarm for DLQ messages"
+  type        = bool
+  default     = true
+}
+
+variable "dlq_alarm_threshold" {
+  description = "Number of messages in DLQ that triggers the alarm"
+  type        = number
+  default     = 1
+}
+
+variable "dlq_alarm_period" {
+  description = "Period in seconds for the DLQ alarm evaluation"
+  type        = number
+  default     = 60
+}
+
+variable "dlq_alarm_evaluation_periods" {
+  description = "Number of periods over which data is compared to the threshold"
+  type        = number
+  default     = 1
+}
+
+variable "dlq_alarm_sns_topic_arn" {
+  description = "ARN of SNS topic to notify when DLQ alarm triggers (optional)"
+  type        = string
+  default     = null
 }
 
 variable "tags" {

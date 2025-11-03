@@ -8,6 +8,7 @@ This module creates SQS queues for message queuing between Lambda functions.
 - Dead Letter Queue (DLQ) - optional
 - Queue policies for send/receive permissions
 - Redrive policy (sends failed messages to DLQ)
+- CloudWatch alarm for DLQ messages (optional)
 
 ## Usage
 
@@ -39,6 +40,11 @@ module "sqs" {
 - `receive_wait_time_seconds`: Long polling wait time (default: 0 = short polling)
 - `max_receive_count`: Max times a message can be received before moving to DLQ (default: 3)
 - `dlq_message_retention_seconds`: DLQ message retention (default: 14 days)
+- `enable_dlq_alarm`: Whether to create CloudWatch alarm for DLQ messages (default: true)
+- `dlq_alarm_threshold`: Number of messages in DLQ that triggers alarm (default: 1)
+- `dlq_alarm_period`: Period in seconds for alarm evaluation (default: 60)
+- `dlq_alarm_evaluation_periods`: Number of periods for alarm evaluation (default: 1)
+- `dlq_alarm_sns_topic_arn`: Optional SNS topic ARN for alarm notifications
 - `tags`: Tags to apply to resources
 
 ## Outputs
@@ -49,13 +55,15 @@ module "sqs" {
 - `dlq_url`: URL of the DLQ (null if disabled)
 - `dlq_arn`: ARN of the DLQ (null if disabled)
 - `dlq_name`: Name of the DLQ (null if disabled)
+- `dlq_alarm_arn`: ARN of the CloudWatch alarm for DLQ messages (null if disabled)
+- `dlq_alarm_name`: Name of the CloudWatch alarm for DLQ messages (null if disabled)
 
 ## Queue Configuration
 
 ### Main Queue
 - **Type**: Standard queue
 - **Message Retention**: 4 days (configurable)
-- **Visibility Timeout**: 30 seconds (configurable)
+- **Visibility Timeout**: 360 seconds (6 minutes) - AWS recommends 6x Lambda timeout for event source mapping
 - **Polling**: Short polling (0 seconds wait time)
 - **Redrive Policy**: Automatically moves failed messages to DLQ after `max_receive_count` attempts
 
@@ -63,6 +71,7 @@ module "sqs" {
 - **Type**: Standard queue
 - **Message Retention**: 14 days (configurable)
 - **Purpose**: Stores messages that failed processing
+- **CloudWatch Alarm**: Monitors message count and alerts when messages appear (default: triggers at 1 message)
 
 ## IAM Permissions
 
@@ -99,7 +108,7 @@ resource "aws_lambda_event_source_mapping" "sqs_worker" {
 
 - **Standard Queue**: Uses at-least-once delivery (messages may be delivered multiple times)
 - **DLQ**: Automatically receives messages after `max_receive_count` failed processing attempts
-- **Visibility Timeout**: How long a message is hidden after being received (should be >= Lambda timeout)
+- **Visibility Timeout**: How long a message is hidden after being received. **Must be >= Lambda function timeout** (AWS recommends 6x Lambda timeout). Default is 360 seconds (6 minutes) to support Lambda functions with up to 60-second timeout.
 - **Long Polling**: Set `receive_wait_time_seconds = 20` for long polling (reduces API calls)
 
 ## Example: Custom Queue Configuration
@@ -112,9 +121,9 @@ module "sqs_tasks" {
   environment                = var.environment
   queue_name                 = "tasks"
   message_retention_seconds  = 604800  # 7 days
-  visibility_timeout_seconds = 60    # 1 minute
-  receive_wait_time_seconds  = 20    # Long polling
-  max_receive_count          = 5      # More retries before DLQ
+  visibility_timeout_seconds = 360     # 6 minutes (for Lambda timeout up to 60s)
+  receive_wait_time_seconds  = 20      # Long polling
+  max_receive_count          = 5        # More retries before DLQ
   enable_dlq                 = true
 
   tags = var.tags
