@@ -235,17 +235,17 @@ modules/*/variables.tf (sub-modules define their own defaults)
 
 **Example:**
 ```hcl
-# ✅ main/variables.tf - Only essential variables
+# main/variables.tf - Only essential variables
 variable "project_name" { ... }  # Used by multiple modules
 variable "environment" { ... }   # Used by multiple modules
 
-# ❌ Don't declare these - let sub-modules use their defaults
+# Don't declare these - let sub-modules use their defaults
 # variable "log_retention_in_days" { default = 14 }  # Module has default
 # variable "sqs_queue_name" { default = "main" }     # Module has default
 ```
 
 ```hcl
-# ✅ main/main.tf - Only pass required parameters
+# main/main.tf - Only pass required parameters
 module "log_retention" {
   source = "../modules/log-retention"
   # Don't pass log_retention_in_days - module uses default (14 days)

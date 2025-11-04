@@ -1,7 +1,10 @@
+# Core Configuration
 aws_region   = "ap-southeast-1"
 project_name = "tt-practice"
 environment  = "dev"
-tags = {
-  CostCenter = "training"
-  Owner      = "your-alias"
-}
+
+# Optional: Deployment mode for Lambda functions
+# deploy_mode = "zip"  # Options: "zip" (default) or "container"
+
+# Note: Lambda functions will be implemented in future tasks
+# This layer uses sub-module defaults for most configuration

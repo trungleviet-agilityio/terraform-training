@@ -1,32 +1,7 @@
+# Core Configuration
 aws_region   = "ap-southeast-1"
 project_name = "tt-practice"
 environment  = "dev"
-
-# API Gateway Configuration
-# Note: Set these after Lambda function is created in 30_app layer
-# For now, leave empty to create API Gateway without Lambda integration
-# api_lambda_function_arn  = ""
-# api_lambda_function_name = ""
-create_api_gateway = false  # Set to true after Lambda is created
-
-# SQS Configuration
-sqs_queue_name = "main"      # Queue name (without prefix)
-sqs_enable_dlq = true         # Enable Dead Letter Queue
-create_sqs     = true         # Create SQS queues
-
-# EventBridge Schedule Configuration
-# Note: Set these after Lambda function is created in 30_app layer
-# eventbridge_schedule_name       = "producer"
-# eventbridge_schedule_expression = "cron(0 12 * * ? *)"  # Daily at 12:00 PM UTC
-# eventbridge_lambda_function_arn = ""
-# eventbridge_lambda_function_name = ""
-create_eventbridge_schedule = false  # Set to true after Lambda is created
-
-# Additional tags
-tags = {
-  CostCenter = "training"
-  Owner      = "your-alias"
-}
 
 # GitHub OIDC Configuration (grouped)
 # Configure these to enable GitHub Actions authentication via OIDC
@@ -41,10 +16,32 @@ github_oidc_config = {
 }
 
 # Backend Configuration (grouped - from 10_core layer outputs)
-# These values should be obtained from 10_core layer outputs after deploying 10_core
-# Run: terraform output -json in 10_core/environments/dev/ to get these values
+# IMPORTANT: These values must be obtained from 10_core layer outputs after deploying 10_core
+# Run these commands in 10_core/environments/dev/:
+#   terraform output state_backend_bucket_arn
+#   terraform output state_backend_dynamodb_table_arn
+#   terraform output account_id
+# Then replace the empty strings below with those values
 backend_config = {
   bucket_arn = ""  # Replace with output from: terraform output state_backend_bucket_arn
   table_arn  = ""  # Replace with output from: terraform output state_backend_dynamodb_table_arn
   account_id = ""  # Replace with output from: terraform output account_id
 }
+
+# Optional: Lambda Integration (from 30_app layer)
+# Uncomment and set these after Lambda functions are created in 30_app layer
+# api_lambda_function_arn  = "arn:aws:lambda:ap-southeast-1:123456789012:function:my-api-function"
+# api_lambda_function_name = "my-api-function"
+
+# Optional: EventBridge Schedule Configuration
+# Uncomment and set these after Lambda function is created in 30_app layer
+# eventbridge_schedule_expression  = "cron(0 12 * * ? *)"  # Daily at 12:00 PM UTC
+# eventbridge_lambda_function_arn  = "arn:aws:lambda:ap-southeast-1:123456789012:function:my-producer-function"
+# eventbridge_lambda_function_name = "my-producer-function"
+
+# Note: The following configurations use sub-module defaults and don't need to be specified:
+# - SQS queue_name = "main" (module default)
+# - SQS enable_dlq = true (module default)
+# - EventBridge schedule_name = "producer" (module default)
+# - SQS is always created for practice project
+# - API Gateway and EventBridge are only created when Lambda ARNs are provided
