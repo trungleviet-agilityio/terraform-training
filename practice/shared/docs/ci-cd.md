@@ -7,8 +7,10 @@ This project uses GitHub Actions with AWS OIDC to validate, plan, and apply Terr
 ### Proposed Workflows
 
 #### 1. Terraform Validate (PR)
-**Trigger**: On pull requests to `main` branch  
+**Trigger**: On pull requests to all branches  
 **Purpose**: Validate Terraform code quality and syntax
+
+**Path Filters**: Only runs when files in `practice/deploy/**` are changed
 
 **Steps**:
 - Check Terraform formatting (`terraform fmt -check`)
@@ -18,7 +20,15 @@ This project uses GitHub Actions with AWS OIDC to validate, plan, and apply Terr
 
 **Targets**: All layers (`deploy/10_core`, `deploy/20_infra`, `deploy/30_app`)
 
-#### 2. Terraform Plan (Manual)
+**Implementation**: `.github/workflows/terraform-validate.yml`
+
+**Features**:
+- Matrix strategy runs validation in parallel for all layers
+- No AWS credentials required (uses `-backend=false`)
+- Fast execution (no S3 network calls)
+- Fails fast if any layer fails validation
+
+#### 2. Terraform Plan (Manual) 📋 TODO
 **Trigger**: Manual workflow dispatch  
 **Purpose**: Generate Terraform execution plan for review
 
@@ -28,10 +38,12 @@ This project uses GitHub Actions with AWS OIDC to validate, plan, and apply Terr
 
 **Steps**:
 - Configure AWS credentials via OIDC
-- Initialize Terraform with S3/DynamoDB backend
+- Initialize Terraform with S3/DynamoDB backend (uses `terraform init` with backend=true)
 - Run `terraform plan` and upload plan artifact
 
-#### 3. Terraform Apply (Manual with Approvals)
+**Note**: This workflow will require AWS credentials and S3 backend access to read state files.
+
+#### 3. Terraform Apply (Manual with Approvals) TODO
 **Trigger**: Manual workflow dispatch  
 **Purpose**: Apply Terraform changes to infrastructure
 
@@ -46,16 +58,20 @@ This project uses GitHub Actions with AWS OIDC to validate, plan, and apply Terr
 
 **Steps**:
 - Configure AWS credentials via OIDC
-- Initialize Terraform with S3/DynamoDB backend
+- Initialize Terraform with S3/DynamoDB backend (uses `terraform init` with backend=true)
 - Run `terraform apply`
 
-#### 4. Build Workflow (Optional)
+**Note**: This workflow will require AWS credentials, S3 backend access, and permissions to create/modify AWS resources.
+
+#### 4. Build Workflow (Optional) TODO
 
 **build-zip**:
-- Package Lambda layer with dependencies
+- Package Lambda layer with dependencies using UV
 - Package Lambda function code as zip
 - Upload artifacts to GitHub Actions artifacts
 - Optionally upload to S3 artifacts bucket for deployment
+
+**Note**: This workflow can leverage the `cb` CLI tool's build functionality. See `shared/docs/cb-cli.md` for details.
 
 ## Required Configuration
 
@@ -151,15 +167,42 @@ practice/bin/cb deploy --env dev
 
 ## Workflow File Structure
 
-Workflows should be placed in `.github/workflows/`:
+Workflows are placed in `.github/workflows/`:
 
 ```
 .github/workflows/
-├── terraform-validate.yml
-├── terraform-plan.yml
-├── terraform-apply.yml
-└── build-zip.yml
+├── terraform-validate.yml  (Implemented)
+├── terraform-plan.yml      (TODO)
+├── terraform-apply.yml     (TODO)
+└── build-zip.yml           (TODO)
 ```
+
+### Current Workflows
+
+#### terraform-validate.yml
+- **Status**: Implemented
+- **Trigger**: Pull requests to any branch
+- **Path Filters**: `practice/deploy/**`
+- **Purpose**: Validates Terraform code quality and syntax
+- **AWS Credentials**: Not required (uses `-backend=false`)
+- **Matrix Strategy**: Runs validation for all three layers in parallel
+
+See the workflow file for implementation details and inline comments explaining backend usage.
+
+### Adding New Workflows
+
+When adding new workflows, follow these patterns:
+
+1. **Reuse Matrix Strategy**: The validate workflow uses a matrix strategy over layers - consider reusing this pattern for plan/apply workflows
+2. **Path Filters**: Use path filters to ensure workflows only run when relevant files change
+3. **Backend Usage**: 
+   - Use `terraform init -backend=false` for validation (no AWS access needed)
+   - Use `terraform init` (default, backend=true) for plan/apply (requires AWS credentials and S3 access)
+4. **Working Directory**: Set `working-directory` to `practice/deploy/${{ matrix.layer }}/main` for layer-level operations
+5. **Environment Handling**: For plan/apply workflows, use GitHub Environments for approval gates
+6. **AWS Authentication**: Use AWS OIDC authentication (no static credentials)
+
+See the existing `terraform-validate.yml` as a reference implementation.
 
 ## Best Practices
 
@@ -205,8 +248,10 @@ encrypt        = true
 ## Next Steps
 
 1. [DONE] Document CI/CD approach
-2. [TODO] Create GitHub Actions workflows
-3. [TODO] Set up OIDC provider and IAM roles
-4. [TODO] Configure GitHub Environments
-5. [TODO] Add build workflow for Lambda zip artifacts
-6. [TODO] Test workflows in dev environment
+2. [DONE] Create Terraform Validate workflow
+3. [TODO] Create Terraform Plan workflow (manual dispatch)
+4. [TODO] Create Terraform Apply workflow (manual dispatch with approvals)
+5. [TODO] Create Build workflow for Lambda zip artifacts
+6. [TODO] Set up OIDC provider and IAM roles
+7. [TODO] Configure GitHub Environments
+8. [TODO] Test workflows in dev environment
