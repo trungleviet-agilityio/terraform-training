@@ -1,0 +1,64 @@
+name: Terraform Validate
+
+on:
+  pull_request:
+    paths:
+      - 'practice/deploy/**'
+      - '.github/workflows/terraform-validate.yml'
+
+jobs:
+  validate:
+    name: Validate Terraform
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        layer:
+          - 10_core
+          - 20_infra
+          - 30_app
+      fail-fast: true
+
+    defaults:
+      run:
+        working-directory: practice/deploy/${{ matrix.layer }}/main
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: latest
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: latest
+
+      - name: Terraform Format Check
+        id: fmt
+        run: terraform fmt -check
+        continue-on-error: false
+
+      - name: Terraform Init (No Backend)
+        id: init
+        run: terraform init -backend=false
+        # Note: Using -backend=false because:
+        # - Validation doesn't need state file access
+        # - No AWS credentials required
+        # - Faster execution (no S3 network calls)
+        # - Safe for PR validation (doesn't access infrastructure)
+        # Future plan/apply workflows will use terraform init (backend=true) to read state from S3
+
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate
+        # Note: terraform validate doesn't need state file access
+        # It only validates syntax, variable references, and configuration correctness
+
+      - name: TFLint
+        id: tflint
+        run: tflint --init && tflint
+        # TFLint runs additional linting rules and best practices checks
+        # Works without backend access
