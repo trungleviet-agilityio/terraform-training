@@ -9,6 +9,7 @@ Resources:
 - CloudWatch Log Retention Configuration
 - Optional: KMS Key
 - Optional: KMS Alias
+- AWS Secrets Manager secrets (for application secrets)
 
 Note: DynamoDB table here is for Terraform state locking, NOT application data.
 Application DynamoDB tables should be created in 20_infra (shared) or 30_app (app-specific).
@@ -25,7 +26,7 @@ module "state_backend" {
 
   project_name  = var.project_name
   environment   = var.environment
-  unique_suffix = data.aws_caller_identity.current.account_id  # Use account ID for uniqueness
+  unique_suffix = data.aws_caller_identity.current.account_id # Use account ID for uniqueness
 
   tags = local.common_tags
 }
@@ -44,7 +45,7 @@ resource "aws_kms_key" "this" {
   description             = "${var.project_name} CMK for encryption (${var.environment})"
   deletion_window_in_days = 7
   enable_key_rotation     = true
-  
+
   tags = merge(
     local.common_tags,
     {
@@ -57,4 +58,19 @@ resource "aws_kms_alias" "this" {
   count         = var.create_kms ? 1 : 0
   name          = var.kms_alias
   target_key_id = aws_kms_key.this[0].key_id
+}
+
+# Create AWS Secrets Manager secrets
+module "secrets" {
+  source = "../modules/secrets"
+
+  for_each = nonsensitive(var.secrets)
+
+  environment   = var.environment
+  secret_name   = each.key
+  description   = each.value.description
+  secret_string = try(each.value.secret_string, null)
+  kms_key_id    = try(each.value.kms_key_id, var.create_kms ? aws_kms_key.this[0].arn : null)
+
+  tags = local.common_tags
 }
