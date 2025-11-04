@@ -10,10 +10,10 @@ terraform {
 
   # S3 backend configuration
   backend "s3" {
-    bucket         = "tt-practice-tf-state-<unique>"
-    key            = "app/terraform.tfstate"
-    region         = "ap-southeast-1" # Singapore
-    encrypt        = true
+    bucket  = "tt-practice-tf-state-<unique>"
+    key     = "app/terraform.tfstate"
+    region  = "ap-southeast-1" # Singapore
+    encrypt = true
     # dynamodb_table = "tt-practice-tf-locks" # Consider using this for locking the state file
   }
 }
