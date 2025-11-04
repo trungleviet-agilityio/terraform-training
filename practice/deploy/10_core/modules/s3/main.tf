@@ -1,7 +1,7 @@
 locals {
   # Bucket name must be globally unique - use project name, environment, and unique suffix
   bucket_name = "${var.project_name}-tf-state-${var.environment}-${var.unique_suffix}"
-  
+
   # DynamoDB table name for state locking
   dynamodb_table_name = "${var.project_name}-tf-locks"
 }
