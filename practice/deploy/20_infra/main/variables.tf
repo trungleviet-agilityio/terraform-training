@@ -88,3 +88,41 @@ variable "create_eventbridge_schedule" {
   description = "Whether to create EventBridge schedule. Set to false if Lambda is not yet created."
   default     = true
 }
+
+# GitHub OIDC Configuration (grouped to reduce duplication)
+variable "github_oidc_config" {
+  type = object({
+    organization      = string
+    repository        = string
+    create_oidc       = bool
+    create_policies   = bool
+    create_plan_role  = bool
+    create_apply_role = bool
+    allowed_branches  = optional(list(string))
+  })
+  description = "GitHub OIDC configuration for GitHub Actions authentication."
+  default = {
+    organization      = ""
+    repository        = ""
+    create_oidc       = false
+    create_policies   = false
+    create_plan_role  = false
+    create_apply_role = false
+    allowed_branches  = null
+  }
+}
+
+# Backend Configuration (from 10_core layer outputs, grouped)
+variable "backend_config" {
+  type = object({
+    bucket_arn = string
+    table_arn  = string
+    account_id = string
+  })
+  description = "Terraform state backend configuration from 10_core layer."
+  default = {
+    bucket_arn = ""
+    table_arn  = ""
+    account_id = ""
+  }
+}
