@@ -92,3 +92,32 @@ output "eventbridge_iam_role_arn" {
   value       = module.main.eventbridge_iam_role_arn
   description = "ARN of the IAM role used by EventBridge."
 }
+
+# OIDC Provider Outputs
+output "oidc_provider_arn" {
+  value       = module.main.oidc_provider_arn
+  description = "ARN of the OIDC provider for GitHub Actions. Null if not created."
+}
+
+# GitHub Actions Role Outputs
+output "terraform_plan_role_arn" {
+  value       = module.main.terraform_plan_role_arn
+  description = "ARN of the Terraform plan role for GitHub Actions. Use this for GitHub Secret AWS_ROLE_ARN in terraform-plan.yml workflow. Null if not created."
+  sensitive   = false
+}
+
+output "terraform_apply_role_arn" {
+  value       = module.main.terraform_apply_role_arn
+  description = "ARN of the Terraform apply role for GitHub Actions. Use this for GitHub Secret AWS_ROLE_ARN in terraform-apply.yml workflow. Null if not created."
+  sensitive   = false
+}
+
+output "terraform_plan_role_name" {
+  value       = module.main.terraform_plan_role_name
+  description = "Name of the Terraform plan role. Null if not created."
+}
+
+output "terraform_apply_role_name" {
+  value       = module.main.terraform_apply_role_name
+  description = "Name of the Terraform apply role. Null if not created."
+}

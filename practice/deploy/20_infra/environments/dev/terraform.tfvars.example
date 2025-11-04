@@ -27,3 +27,24 @@ tags = {
   CostCenter = "training"
   Owner      = "your-alias"
 }
+
+# GitHub OIDC Configuration (grouped)
+# Configure these to enable GitHub Actions authentication via OIDC
+github_oidc_config = {
+  organization      = "your-github-org"
+  repository        = "terraform-training"
+  create_oidc       = false
+  create_policies   = false
+  create_plan_role  = false
+  create_apply_role = false
+  # allowed_branches  = ["main", "develop"]  # Optional: Restrict to specific branches
+}
+
+# Backend Configuration (grouped - from 10_core layer outputs)
+# These values should be obtained from 10_core layer outputs after deploying 10_core
+# Run: terraform output -json in 10_core/environments/dev/ to get these values
+backend_config = {
+  bucket_arn = ""  # Replace with output from: terraform output state_backend_bucket_arn
+  table_arn  = ""  # Replace with output from: terraform output state_backend_dynamodb_table_arn
+  account_id = ""  # Replace with output from: terraform output account_id
+}
