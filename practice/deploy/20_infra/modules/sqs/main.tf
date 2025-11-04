@@ -7,24 +7,24 @@ locals {
 # Dead Letter Queue (optional)
 resource "aws_sqs_queue" "dlq" {
   count = var.enable_dlq ? 1 : 0
-  
+
   name                      = local.dlq_name
   message_retention_seconds = var.dlq_message_retention_seconds
 
   tags = merge(
     var.tags,
     {
-      Name        = local.dlq_name
-      Purpose     = "Dead Letter Queue"
-      QueueType   = "DLQ"
+      Name      = local.dlq_name
+      Purpose   = "Dead Letter Queue"
+      QueueType = "DLQ"
     }
   )
 }
 
 # Main SQS Queue
 resource "aws_sqs_queue" "main" {
-  name                      = local.main_queue_name
-  message_retention_seconds = var.message_retention_seconds
+  name                       = local.main_queue_name
+  message_retention_seconds  = var.message_retention_seconds
   visibility_timeout_seconds = var.visibility_timeout_seconds
   receive_wait_time_seconds  = var.receive_wait_time_seconds
 
@@ -37,9 +37,9 @@ resource "aws_sqs_queue" "main" {
   tags = merge(
     var.tags,
     {
-      Name        = local.main_queue_name
-      Purpose     = "Main Queue"
-      QueueType   = "Standard"
+      Name      = local.main_queue_name
+      Purpose   = "Main Queue"
+      QueueType = "Standard"
     }
   )
 }
@@ -52,7 +52,7 @@ resource "aws_sqs_queue_policy" "main" {
     Version = "2012-10-17"
     Statement = [
       {
-        Effect = "Allow"
+        Effect    = "Allow"
         Principal = "*"
         Action = [
           "sqs:SendMessage"
@@ -71,14 +71,14 @@ resource "aws_sqs_queue_policy" "main" {
 # Queue policy for DLQ (allows Lambda to send failed messages)
 resource "aws_sqs_queue_policy" "dlq" {
   count = var.enable_dlq ? 1 : 0
-  
+
   queue_url = aws_sqs_queue.dlq[0].id
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
-        Effect = "Allow"
+        Effect    = "Allow"
         Principal = "*"
         Action = [
           "sqs:SendMessage"

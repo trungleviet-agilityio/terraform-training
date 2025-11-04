@@ -23,13 +23,13 @@ variable "enable_dlq" {
 variable "message_retention_seconds" {
   description = "The number of seconds to retain messages in the queue (default: 4 days)"
   type        = number
-  default     = 345600  # 4 days
+  default     = 345600 # 4 days
 }
 
 variable "visibility_timeout_seconds" {
   description = "The visibility timeout for the queue (default: 360 seconds - AWS recommends 6x Lambda timeout for event source mapping)"
   type        = number
-  default     = 360  # 6 minutes - recommended for Lambda functions with up to 60s timeout
+  default     = 360 # 6 minutes - recommended for Lambda functions with up to 60s timeout
 }
 
 variable "receive_wait_time_seconds" {
@@ -47,7 +47,7 @@ variable "max_receive_count" {
 variable "dlq_message_retention_seconds" {
   description = "The number of seconds to retain messages in the DLQ (default: 14 days)"
   type        = number
-  default     = 1209600  # 14 days
+  default     = 1209600 # 14 days
 }
 
 variable "enable_dlq_alarm" {

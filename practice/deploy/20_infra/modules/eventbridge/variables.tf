@@ -17,7 +17,7 @@ variable "schedule_name" {
 variable "schedule_expression" {
   description = "Schedule expression (cron or rate). Example: 'cron(0 12 * * ? *)' or 'rate(5 minutes)'"
   type        = string
-  default     = "cron(0 12 * * ? *)"  # Daily at 12:00 PM UTC
+  default     = "cron(0 12 * * ? *)" # Daily at 12:00 PM UTC
 }
 
 variable "lambda_function_arn" {
