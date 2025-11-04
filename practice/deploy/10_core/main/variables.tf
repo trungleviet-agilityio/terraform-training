@@ -45,3 +45,14 @@ variable "kms_alias" {
     error_message = "kms_alias must be a valid KMS alias starting with 'alias/'."
   }
 }
+
+variable "secrets" {
+  type = map(object({
+    description   = string
+    secret_string = optional(string, null)
+    kms_key_id    = optional(string, null)
+  }))
+  description = "Map of secrets to create in AWS Secrets Manager. Key is the secret name (without /practice/<environment>/ prefix)."
+  default     = {}
+  sensitive   = true
+}

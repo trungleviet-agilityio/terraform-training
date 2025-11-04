@@ -52,3 +52,34 @@ output "state_backend_dynamodb_table_arn" {
   value       = module.state_backend.dynamodb_table_arn
   description = "ARN of the DynamoDB table for Terraform state locking."
 }
+
+# AWS Secrets Manager outputs
+output "secrets" {
+  value = {
+    for k, v in module.secrets : k => {
+      arn  = v.secret_arn
+      name = v.secret_name
+      id   = v.secret_id
+    }
+  }
+  description = "Map of all secrets with their ARNs, names, and IDs. Key is the secret name (without /practice/<environment>/ prefix)."
+}
+
+output "secret_arns" {
+  value = {
+    for k, v in module.secrets : k => v.secret_arn
+  }
+  description = "Map of secret ARNs keyed by secret name. Use these for Lambda environment variables."
+}
+
+# Individual secret outputs for convenience (example: api_key_secret_arn)
+# These can be referenced as module.core.api_key_secret_arn if 'api_key' secret exists
+output "api_key_secret_arn" {
+  value       = try(module.secrets["api_key"].secret_arn, null)
+  description = "ARN of the api_key secret (if created). Use this for Lambda environment variables."
+}
+
+output "api_key_secret_name" {
+  value       = try(module.secrets["api_key"].secret_name, null)
+  description = "Full name of the api_key secret (if created). Format: /practice/<environment>/api-key"
+}
