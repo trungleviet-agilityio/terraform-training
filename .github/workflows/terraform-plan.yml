@@ -1,0 +1,100 @@
+name: Terraform Plan
+
+on:
+  pull_request:
+    paths:
+      - 'practice/deploy/**'
+      - '.github/workflows/terraform-plan.yml'
+  workflow_dispatch:
+    inputs:
+      layer:
+        description: 'Layer to plan (10_core, 20_infra, 30_app, or all)'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - 10_core
+          - 20_infra
+          - 30_app
+
+jobs:
+  prepare:
+    name: Prepare Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      layers: ${{ steps.set-matrix.outputs.layers }}
+    steps:
+      - name: Set matrix layers
+        id: set-matrix
+        run: |
+          if [ "${{ github.event_name }}" == "pull_request" ] || [ "${{ github.event.inputs.layer }}" == "all" ] || [ -z "${{ github.event.inputs.layer }}" ]; then
+            echo 'layers=["10_core","20_infra","30_app"]' >> $GITHUB_OUTPUT
+          else
+            echo "layers=[\"${{ github.event.inputs.layer }}\"]" >> $GITHUB_OUTPUT
+          fi
+
+  plan:
+    name: Plan Terraform (${{ matrix.layer }} - ${{ matrix.environment }})
+    runs-on: ubuntu-latest
+    needs: prepare
+
+    strategy:
+      matrix:
+        environment: [dev, stage, prod]
+        layer: ${{ fromJSON(needs.prepare.outputs.layers) }}
+      fail-fast: false
+
+    defaults:
+      run:
+        working-directory: practice/deploy/${{ matrix.layer }}/environments/${{ matrix.environment }}
+
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          role-session-name: GitHubActions-TerraformPlan
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: latest
+
+      - name: Terraform Init
+        id: init
+        run: terraform init
+        # Note: Using terraform init (backend=true) because:
+        # - Plan needs to read current state from S3
+        # - Requires AWS credentials (configured via OIDC above)
+        # - Uses backend configuration from providers.tf
+        # - DynamoDB table used for state locking
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          terraform plan \
+            -var-file=terraform.tfvars \
+            -out=tfplan-${{ matrix.layer }}-${{ matrix.environment }}.tfplan
+        continue-on-error: true
+
+      - name: Terraform Plan Status
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
+
+      - name: Upload Plan Artifact
+        uses: actions/upload-artifact@v4
+        if: steps.plan.outcome == 'success'
+        with:
+          name: terraform-plan-${{ matrix.layer }}-${{ matrix.environment }}-${{ github.run_id }}
+          path: practice/deploy/${{ matrix.layer }}/environments/${{ matrix.environment }}/tfplan-${{ matrix.layer }}-${{ matrix.environment }}.tfplan
+          retention-days: 7
