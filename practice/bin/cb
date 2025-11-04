@@ -1,1 +1,627 @@
-# place holder for the cb script
+#!/bin/bash
+set -euo pipefail
+
+# Script to build and test runtime packages
+
+# Usage: 
+#   cb                           - Show help
+#   cb build                     - Package all packages into out/
+#   cb test                      - Run build, then run tests against packages in out/
+#   cb deploy                    - Run build, then deploy infrastructure with terraform
+#   cb run <package> <command>   - Run command in package environment (alias for cybernetika-runner)
+#   cb build --only <package>    - Build only specified package
+#   cb test --only <package>     - Test only specified package (runs build first)
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Get script directory and project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
+
+# Default values
+ENV="dev"
+ONLY_PACKAGE=""
+ONLY_LAYER=""
+
+# Package directories
+SRC_LAMBDA_DIR="$PROJECT_ROOT/src/lambda"
+OUT_DIR="$PROJECT_ROOT/out"
+DEPLOY_DIR="$PROJECT_ROOT/deploy"
+
+# Layer mappings
+declare -A LAYER_MAP=(
+  ["core"]="10_core"
+  ["infra"]="20_infra"
+  ["app"]="30_app"
+)
+
+# Print colored output
+_print_info() {
+  echo -e "${BLUE}ℹ${NC} $*"
+}
+
+_print_success() {
+  echo -e "${GREEN}✓${NC} $*"
+}
+
+_print_warning() {
+  echo -e "${YELLOW}⚠${NC} $*"
+}
+
+_print_error() {
+  echo -e "${RED}✗${NC} $*" >&2
+}
+
+# Show help/usage
+_show_help() {
+  cat << EOF
+cb - Unified Developer CLI Tool
+
+Usage:
+  cb                           - Show help
+  cb build                     - Package all packages into out/
+  cb test                      - Run build, then run tests against packages in out/
+  cb deploy                    - Run build, then deploy infrastructure with terraform
+  cb run <package> <command>   - Run command in package environment
+
+Options:
+  --env <dev|stage|prod>       - Environment selection (default: dev)
+  --only <package|layer>       - Build/test/deploy only specified package or layer
+                                  Layers: core, infra, app
+  --help                       - Show this help message
+
+Examples:
+  cb build
+  cb build --only lambda-api
+  cb test --only lambda-worker
+  cb deploy --env dev
+  cb deploy --only core --env prod
+  cb run lambda-api python -m pytest
+EOF
+}
+
+# Parse command line arguments
+parse_args() {
+  local cmd=""
+  local args=()
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --env)
+        if [[ -z "${2:-}" ]]; then
+          _print_error "Error: --env requires an argument"
+          exit 1
+        fi
+        ENV="$2"
+        if [[ ! "$ENV" =~ ^(dev|stage|prod)$ ]]; then
+          _print_error "Error: Environment must be one of: dev, stage, prod"
+          exit 1
+        fi
+        shift 2
+        ;;
+      --only)
+        if [[ -z "${2:-}" ]]; then
+          _print_error "Error: --only requires an argument"
+          exit 1
+        fi
+        # Check if it's a layer or package
+        if [[ -v LAYER_MAP["$2"] ]]; then
+          ONLY_LAYER="$2"
+        else
+          ONLY_PACKAGE="$2"
+        fi
+        shift 2
+        ;;
+      --help|-h)
+        # Help is handled in main() before parse_args is called
+        # But if we reach here, show help and exit
+        _show_help
+        exit 0
+        ;;
+      build|test|deploy|run)
+        cmd="$1"
+        shift
+        args=("$@")
+        break
+        ;;
+      *)
+        if [[ -z "$cmd" ]]; then
+          _print_error "Error: Unknown option or command: $1"
+          _show_help
+          exit 1
+        else
+          args+=("$1")
+        fi
+        shift
+        ;;
+    esac
+  done
+
+  # If no command provided, show help
+  if [[ -z "$cmd" ]]; then
+    _show_help
+    exit 0
+  fi
+
+  echo "$cmd"
+  printf '%s\n' "${args[@]}"
+}
+
+# Check prerequisites
+check_prerequisites() {
+  local missing=()
+
+  if ! command -v terraform &> /dev/null; then
+    missing+=("terraform")
+  fi
+
+  if ! command -v aws &> /dev/null; then
+    missing+=("aws")
+  fi
+
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    _print_error "Missing required tools: ${missing[*]}"
+    _print_info "Please install the missing tools and try again"
+    exit 1
+  fi
+}
+
+# Check if UV is available (required for Python packages)
+check_uv() {
+  if ! command -v uv &> /dev/null; then
+    _print_error "UV is required for Python package management but not found"
+    _print_info "Please install UV: https://github.com/astral-sh/uv"
+    exit 1
+  fi
+}
+
+# Detect available packages in src/lambda/
+_detect_packages() {
+  local packages=()
+
+  if [[ ! -d "$SRC_LAMBDA_DIR" ]]; then
+    return 0
+  fi
+
+  # Find all directories in src/lambda/ (excluding hidden files)
+  while IFS= read -r -d '' dir; do
+    [[ -z "$dir" ]] && continue
+    local pkg_name=$(basename "$dir")
+    # Skip hidden directories and gitkeep files, and ensure name is not empty
+    if [[ -n "$pkg_name" ]] && [[ ! "$pkg_name" =~ ^\. ]]; then
+      packages+=("$pkg_name")
+    fi
+  done < <(find "$SRC_LAMBDA_DIR" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null || true)
+
+  # Only output non-empty package names
+  for pkg in "${packages[@]}"; do
+    [[ -n "$pkg" ]] && echo "$pkg"
+  done
+}
+
+# Check if a directory contains Python code
+_is_python_package() {
+  local dir="$1"
+  [[ -f "$dir/requirements.txt" ]] || [[ -f "$dir/pyproject.toml" ]] || [[ -f "$dir/Pipfile" ]] || \
+  find "$dir" -maxdepth 1 -name "*.py" -type f | grep -q .
+}
+
+# Build a single package
+_build_package() {
+  local package="$1"
+  local package_dir="$SRC_LAMBDA_DIR/$package"
+  local output_file="$OUT_DIR/$package.zip"
+  local temp_build_dir
+
+  if [[ ! -d "$package_dir" ]]; then
+    _print_error "Package directory not found: $package_dir"
+    return 1
+  fi
+
+  _print_info "Building package: $package"
+
+  # Create output directory if it doesn't exist
+  mkdir -p "$OUT_DIR"
+
+  # Create temporary build directory
+  temp_build_dir=$(mktemp -d)
+  local cleanup_temp_build_dir="rm -rf '$temp_build_dir'"
+  trap "$cleanup_temp_build_dir" EXIT INT TERM
+
+  # Copy package files to temp directory
+  cp -r "$package_dir"/* "$temp_build_dir"/ 2>/dev/null || true
+
+  # If it's a Python package, install dependencies with UV
+  if _is_python_package "$package_dir"; then
+    check_uv
+    _print_info "Detected Python package, installing dependencies with UV..."
+
+    cd "$temp_build_dir"
+
+    # Check for dependency files
+    if [[ -f "requirements.txt" ]]; then
+      # Install dependencies to a python directory (Lambda-compatible structure)
+      uv pip install -r requirements.txt --target python || {
+        _print_error "Failed to install dependencies with UV"
+        return 1
+      }
+    elif [[ -f "pyproject.toml" ]]; then
+      # Use UV to install from pyproject.toml
+      uv pip install -e . --target python || {
+        _print_error "Failed to install dependencies with UV"
+        return 1
+      }
+    fi
+
+    # Ensure python directory exists even if no dependencies
+    mkdir -p python
+  fi
+
+  # Create zip file from temp directory
+  cd "$temp_build_dir"
+  if zip -r "$output_file" . -q > /dev/null 2>&1; then
+    _print_success "Built $package -> $output_file"
+    return 0
+  else
+    _print_error "Failed to build $package"
+    return 1
+  fi
+}
+
+# Build all packages or a specific package
+cmd_build() {
+  local packages
+  mapfile -t packages < <(_detect_packages)
+
+  # Filter out empty entries
+  local filtered_packages=()
+  for pkg in "${packages[@]}"; do
+    if [[ -n "$pkg" ]] && [[ "$pkg" != "" ]]; then
+      filtered_packages+=("$pkg")
+    fi
+  done
+  packages=("${filtered_packages[@]}")
+
+  if [[ ${#packages[@]} -eq 0 ]]; then
+    _print_warning "No packages found in $SRC_LAMBDA_DIR"
+    _print_info "Packages should be placed in subdirectories under src/lambda/"
+    _print_info "Example: src/lambda/lambda-api/, src/lambda/lambda-worker/"
+    return 0
+  fi
+
+  if [[ -n "$ONLY_PACKAGE" ]]; then
+    # Check if package exists
+    if [[ ! -d "$SRC_LAMBDA_DIR/$ONLY_PACKAGE" ]]; then
+      _print_error "Package not found: $ONLY_PACKAGE"
+      if [[ ${#packages[@]} -gt 0 ]]; then
+        _print_info "Available packages: ${packages[*]}"
+      fi
+      exit 1
+    fi
+    _build_package "$ONLY_PACKAGE"
+  else
+    _print_info "Building all packages..."
+    for package in "${packages[@]}"; do
+      if [[ -n "$package" ]] && [[ "$package" != "" ]]; then
+        _build_package "$package"
+      fi
+    done
+    _print_success "Build complete"
+  fi
+}
+
+# Test a single package
+_test_package() {
+  local package="$1"
+  local output_file="$OUT_DIR/$package.zip"
+
+  if [[ ! -f "$output_file" ]]; then
+    _print_warning "Package not built: $output_file. Building now..."
+    _build_package "$package" || return 1
+  fi
+
+  _print_info "Testing package: $package"
+
+  # Basic validation: check if zip is valid and not empty
+  if ! unzip -t "$output_file" > /dev/null 2>&1; then
+    _print_error "Invalid zip file: $output_file"
+    return 1
+  fi
+
+  # Check file size (Lambda limit: 50MB uncompressed, 250MB for layers)
+  local size=$(stat -f%z "$output_file" 2>/dev/null || stat -c%s "$output_file" 2>/dev/null || echo "0")
+  local size_mb=$((size / 1024 / 1024))
+
+  if [[ $size_mb -gt 50 ]]; then
+    _print_warning "Package size is ${size_mb}MB (Lambda limit: 50MB uncompressed)"
+  fi
+
+  _print_success "Package $package passed validation"
+  return 0
+}
+
+# Test all packages or a specific package
+cmd_test() {
+  # Run build first
+  _print_info "Running build first..."
+  cmd_build
+
+  local packages
+  mapfile -t packages < <(_detect_packages)
+
+  # Filter out empty entries
+  local filtered_packages=()
+  for pkg in "${packages[@]}"; do
+    if [[ -n "$pkg" ]] && [[ "$pkg" != "" ]]; then
+      filtered_packages+=("$pkg")
+    fi
+  done
+  packages=("${filtered_packages[@]}")
+
+  if [[ ${#packages[@]} -eq 0 ]]; then
+    _print_warning "No packages found in $SRC_LAMBDA_DIR"
+    return 0
+  fi
+
+  local failed=0
+
+  if [[ -n "$ONLY_PACKAGE" ]]; then
+    if [[ ! -d "$SRC_LAMBDA_DIR/$ONLY_PACKAGE" ]]; then
+      _print_error "Package not found: $ONLY_PACKAGE"
+      exit 1
+    fi
+    _test_package "$ONLY_PACKAGE" || failed=1
+  else
+    _print_info "Testing all packages..."
+    for package in "${packages[@]}"; do
+      if [[ -n "$package" ]] && [[ "$package" != "" ]]; then
+        _test_package "$package" || failed=1
+      fi
+    done
+  fi
+
+  if [[ $failed -eq 0 ]]; then
+    _print_success "All tests passed"
+  else
+    _print_error "Some tests failed"
+    exit 1
+  fi
+}
+
+# Get layer directory path
+_get_layer_path() {
+  local layer="$1"
+  local env="$2"
+
+  if [[ -v LAYER_MAP["$layer"] ]]; then
+    local layer_dir="${LAYER_MAP[$layer]}"
+    echo "$DEPLOY_DIR/$layer_dir/environments/$env"
+  else
+    _print_error "Unknown layer: $layer"
+    return 1
+  fi
+}
+
+# Deploy a single layer
+_deploy_layer() {
+  local layer="$1"
+  local env="$2"
+  local layer_path
+
+  layer_path=$(_get_layer_path "$layer" "$env")
+
+  if [[ ! -d "$layer_path" ]]; then
+    _print_error "Layer environment not found: $layer_path"
+    return 1
+  fi
+
+  _print_info "Deploying layer: $layer (environment: $env)"
+
+  cd "$layer_path"
+
+  # Check if terraform.tfvars exists
+  if [[ ! -f "terraform.tfvars" ]]; then
+    _print_warning "terraform.tfvars not found, checking for example file..."
+    if [[ -f "terraform.tfvars.example" ]]; then
+      _print_error "Please copy terraform.tfvars.example to terraform.tfvars and configure it"
+      return 1
+    else
+      _print_error "No terraform.tfvars or terraform.tfvars.example found"
+      return 1
+    fi
+  fi
+
+  # Initialize Terraform if .terraform directory doesn't exist
+  if [[ ! -d ".terraform" ]]; then
+    _print_info "Initializing Terraform..."
+    terraform init
+  fi
+  
+  # Plan
+  _print_info "Running terraform plan..."
+  if ! terraform plan -var-file=terraform.tfvars -out=tfplan; then
+    _print_error "Terraform plan failed"
+    return 1
+  fi
+  
+  # Apply
+  _print_info "Applying Terraform changes..."
+  if terraform apply tfplan; then
+    _print_success "Layer $layer deployed successfully"
+    rm -f tfplan
+    return 0
+  else
+    _print_error "Terraform apply failed"
+    rm -f tfplan
+    return 1
+  fi
+}
+
+# Deploy infrastructure
+cmd_deploy() {
+  check_prerequisites
+
+  # Run build first
+  _print_info "Running build first..."
+  cmd_build
+
+  local layers=()
+  local failed=0
+
+  if [[ -n "$ONLY_LAYER" ]]; then
+    # Check if it's a valid layer
+    if [[ ! -v LAYER_MAP["$ONLY_LAYER"] ]]; then
+      _print_error "Unknown layer: $ONLY_LAYER"
+      _print_info "Available layers: ${!LAYER_MAP[*]}"
+      exit 1
+    fi
+    layers=("$ONLY_LAYER")
+  else
+    # Deploy all layers in order: core -> infra -> app
+    layers=("core" "infra" "app")
+  fi
+
+  _print_info "Deploying to environment: $ENV"
+
+  for layer in "${layers[@]}"; do
+    if ! _deploy_layer "$layer" "$ENV"; then
+      failed=1
+      # If core fails, don't continue with other layers
+      if [[ "$layer" == "core" ]]; then
+        _print_error "Core layer deployment failed. Cannot proceed with other layers."
+        exit 1
+      fi
+      _print_warning "Layer $layer deployment failed, continuing with next layer..."
+    fi
+  done
+
+  if [[ $failed -eq 0 ]]; then
+    _print_success "Deployment complete"
+  else
+    _print_error "Deployment completed with errors"
+    exit 1
+  fi
+}
+
+# Run command in package environment
+cmd_run() {
+  local args=("$@")
+
+  if [[ ${#args[@]} -lt 2 ]]; then
+    _print_error "Error: cb run requires <package> <command>"
+    _print_info "Example: cb run lambda-api python -m pytest"
+    exit 1
+  fi
+
+  local package="${args[0]}"
+  local command_args=("${args[@]:1}")
+  local package_dir="$SRC_LAMBDA_DIR/$package"
+
+  if [[ ! -d "$package_dir" ]]; then
+    _print_error "Package not found: $package"
+    local packages
+    mapfile -t packages < <(_detect_packages)
+    if [[ ${#packages[@]} -gt 0 ]]; then
+      _print_info "Available packages: ${packages[*]}"
+    fi
+    exit 1
+  fi
+
+  _print_info "Running command in package: $package"
+  _print_info "Command: ${command_args[*]}"
+
+  cd "$package_dir"
+  # If it's a Python package, set up UV environment
+  if _is_python_package "$package_dir"; then
+    check_uv
+    _print_info "Setting up Python environment with UV..."
+
+    # Check if cybernetika-runner exists
+    if command -v cybernetika-runner &> /dev/null; then
+      cybernetika-runner "${command_args[@]}"
+    else
+      # Use UV to run the command with proper environment
+      if [[ -f "requirements.txt" ]] || [[ -f "pyproject.toml" ]]; then
+        # Use UV to run command with dependencies installed
+        uv run "${command_args[@]}"
+      else
+        # Execute command directly
+        "${command_args[@]}"
+      fi
+    fi
+  else
+    # Check if cybernetika-runner exists
+    if command -v cybernetika-runner &> /dev/null; then
+      cybernetika-runner "${command_args[@]}"
+    else
+      # Execute command directly
+      "${command_args[@]}"
+    fi
+  fi
+}
+
+# Main execution
+main() {
+  # Handle empty arguments - show help
+  if [[ $# -eq 0 ]]; then
+    _show_help
+    exit 0
+  fi
+
+  # Handle --help flag before parsing
+  for arg in "$@"; do
+    if [[ "$arg" == "--help" ]] || [[ "$arg" == "-h" ]]; then
+      _show_help
+      exit 0
+    fi
+  done
+
+  local parsed
+  parsed=$(parse_args "$@")
+
+  # parse_args already handles showing help and exiting, so if we get here with empty output,
+  # something went wrong
+  if [[ -z "$parsed" ]]; then
+    exit 0
+  fi
+
+  local cmd_line
+  read -r cmd_line <<< "$parsed"
+  local cmd="$cmd_line"
+
+  local args_str
+  args_str=$(echo "$parsed" | tail -n +2)
+  local args=()
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && args+=("$line")
+  done <<< "$args_str"
+
+  case "$cmd" in
+    build)
+      cmd_build
+      ;;
+    test)
+      cmd_test
+      ;;
+    deploy)
+      cmd_deploy
+      ;;
+    run)
+      cmd_run "${args[@]}"
+      ;;
+    *)
+      _print_error "Unknown command: $cmd"
+      _show_help
+      exit 1
+      ;;
+  esac
+}
+
+# Run main function
+main "$@"
