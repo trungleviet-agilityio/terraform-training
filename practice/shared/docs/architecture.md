@@ -165,22 +165,15 @@ Secrets are managed using a layered approach with AWS Secrets Manager:
 
 **10_core** creates secrets:
 ```hcl
-resource "aws_secretsmanager_secret" "database_url" {
-  name        = "${var.project_name}-${var.environment}-database-url"
-  description = "Database connection string"
-}
-
-resource "aws_secretsmanager_secret_version" "database_url" {
-  secret_id = aws_secretsmanager_secret.database_url.id
-  secret_string = jsonencode({
-    host     = var.database_host
-    port     = 5432
-    database = var.database_name
-    username = var.database_user
-    password = var.database_password
-  })
+secrets = {
+  api_key = {
+    description   = "API key for external service"
+    secret_string = null  # Set via AWS Console or CI/CD
+  }
 }
 ```
+
+This creates a secret named `/practice/<environment>/api-key` in AWS Secrets Manager.
 
 **20_infra** grants Lambda access:
 ```hcl
@@ -189,10 +182,8 @@ resource "aws_iam_role_policy" "lambda_secrets" {
   policy = jsonencode({
     Statement = [{
       Effect = "Allow"
-      Action = ["secretsmanager:GetSecretValue"]
-      Resource = [
-        module.core.database_secret_arn
-      ]
+      Action = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
+      Resource = [data.terraform_remote_state.core.outputs.api_key_secret_arn]
     }]
   })
 }
@@ -201,22 +192,48 @@ resource "aws_iam_role_policy" "lambda_secrets" {
 **30_app** consumes secrets:
 ```hcl
 resource "aws_lambda_function" "api" {
-  # ... other config ...
   environment {
     variables = {
-      DATABASE_SECRET_ARN = module.core.database_secret_arn
-      # Lambda reads secret at runtime using AWS SDK
+      ENV                = "dev"
+      API_KEY_SECRET_ARN = data.terraform_remote_state.core.outputs.api_key_secret_arn
     }
   }
+  
+  # IAM policy statements for secret access
+  iam_policy_statements = [
+    {
+      Effect = "Allow"
+      Action = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
+      Resource = [data.terraform_remote_state.core.outputs.api_key_secret_arn]
+    }
+  ]
 }
 ```
 
+**Lambda Code Example**:
+```python
+import boto3
+import json
+import os
+
+def lambda_handler(event, context):
+    secret_arn = os.environ.get('API_KEY_SECRET_ARN')
+    client = boto3.client('secretsmanager')
+    response = client.get_secret_value(SecretId=secret_arn)
+    secret_value = json.loads(response['SecretString'])
+    # Use secret_value
+```
+
 **Best Practices**:
-- Never store secrets in Terraform variables or code
+- Never store secrets in Terraform variables or code (use `secret_string = null`)
 - Use Secrets Manager for all sensitive data (API keys, database credentials, tokens)
+- Pass secret ARNs (not values) as environment variables
 - Rotate secrets regularly
 - Use separate secrets per environment
 - Grant access only to resources that need it
+- Monitor secret access via CloudTrail
+
+**See**: `practice/deploy/10_core/modules/secrets/README.md` for detailed module documentation.
 
 ## State & Security
 
