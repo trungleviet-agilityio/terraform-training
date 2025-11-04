@@ -201,7 +201,140 @@ Each layer follows this structure:
 └── modules/                 # Reusable sub-modules
 ```
 
-## Helper Scripts
+## Variable Management
+
+### Variable Flow Pattern
+
+Variables flow from environment root modules → main modules → sub-modules:
+
+```
+terraform.tfvars (environment-specific values)
+    ↓
+environments/<env>/variables.tf (root module declares variables)
+    ↓
+environments/<env>/main.tf (passes variables to main module)
+    ↓
+main/variables.tf (module declares minimal input variables)
+    ↓
+main/main.tf (uses variables, passes to sub-modules)
+    ↓
+modules/*/variables.tf (sub-modules define their own defaults)
+```
+
+### Design Principle: Minimal Variable Declaration
+
+**Main modules only declare variables that:**
+1. Are passed to multiple sub-modules (e.g., `project_name`, `environment`)
+2. Are required by sub-modules (no default in sub-module)
+3. Truly vary per environment AND need to be configurable
+
+**Main modules DON'T declare variables when:**
+- Sub-module already has a good default value
+- Value is only used in one place and doesn't vary
+- Configuration is practice-specific and shouldn't change
+
+**Example:**
+```hcl
+# ✅ main/variables.tf - Only essential variables
+variable "project_name" { ... }  # Used by multiple modules
+variable "environment" { ... }   # Used by multiple modules
+
+# ❌ Don't declare these - let sub-modules use their defaults
+# variable "log_retention_in_days" { default = 14 }  # Module has default
+# variable "sqs_queue_name" { default = "main" }     # Module has default
+```
+
+```hcl
+# ✅ main/main.tf - Only pass required parameters
+module "log_retention" {
+  source = "../modules/log-retention"
+  # Don't pass log_retention_in_days - module uses default (14 days)
+  tags = local.common_tags
+}
+
+module "sqs" {
+  source = "../modules/sqs"
+  project_name = var.project_name  # Required (no default in module)
+  environment  = var.environment   # Required (no default in module)
+  # Don't pass queue_name or enable_dlq - module uses defaults
+  tags = local.common_tags
+}
+```
+
+### Variable Grouping Strategy
+
+To reduce duplication, related variables are grouped into object types:
+
+**Example: GitHub OIDC Configuration**
+```hcl
+# Instead of 7 separate variables:
+variable "github_organization" { ... }
+variable "github_repository" { ... }
+variable "create_oidc_provider" { ... }
+# ... etc
+
+# We use a single grouped variable:
+variable "github_oidc_config" {
+  type = object({
+    organization      = string
+    repository        = string
+    create_oidc       = bool
+    create_policies   = bool
+    create_plan_role  = bool
+    create_apply_role = bool
+    allowed_branches  = optional(list(string))
+  })
+}
+```
+
+**Benefits:**
+- Reduced duplication (1 variable instead of 7)
+- Better organization (related variables grouped)
+- Easier to pass between modules
+- Clearer intent (all GitHub OIDC config in one place)
+
+### Common Variables
+
+All main modules declare only these essential variables:
+
+- `project_name`: Project name for resource naming
+- `environment`: Environment name (dev, stage, prod)
+
+Environment-level `variables.tf` also includes:
+- `aws_region`: AWS region (used for provider configuration)
+
+### Layer-Specific Variables
+
+**10_core** main module variables:
+- `project_name`
+- `environment`
+
+**20_infra** main module variables:
+- `project_name`
+- `environment`
+- `github_oidc_config`: GitHub OIDC configuration (grouped)
+- `backend_config`: Terraform state backend config from 10_core (grouped)
+- Lambda ARN variables: For integrating with 30_app layer (optional)
+
+**30_app** main module variables:
+- `project_name`
+- `environment`
+- `deploy_mode`: Deployment mode (zip or container)
+
+### Variable Validation
+
+All variables include validation blocks to ensure correctness:
+
+```hcl
+variable "environment" {
+  validation {
+    condition     = contains(["dev", "stage", "prod"], var.environment)
+    error_message = "Environment must be one of: dev, stage, prod."
+  }
+}
+```
+
+This prevents invalid values from being passed and provides clear error messages.
 
 ### `scripts/create_environment.sh`
 
@@ -221,8 +354,7 @@ Creates a new environment configuration by copying from `dev`:
 Secrets follow a layered approach:
 
 1. **10_core**: Creates Secrets Manager secrets
-   - Define secrets with `aws_secretsmanager_secret`
-   - Store secret values with `aws_secretsmanager_secret_version`
+   - Define secrets in `terraform.tfvars` using the `secrets` variable
    - Output secret ARNs for use in other layers
 
 2. **20_infra**: Grants access permissions
@@ -232,56 +364,21 @@ Secrets follow a layered approach:
 
 3. **30_app**: Consumes secrets at runtime
    - Lambda functions read secrets via AWS SDK
-   - Or pass secret ARNs as environment variables
+   - Pass secret ARNs as environment variables
    - Never embed secret values directly
 
-### Example Secret Creation (10_core)
+**See**: `shared/docs/architecture.md` for detailed secret management strategy and examples.
 
-```hcl
-resource "aws_secretsmanager_secret" "api_key" {
-  name        = "${var.project_name}-${var.environment}-api-key"
-  description = "API key for external service"
-}
+## Documentation
 
-resource "aws_secretsmanager_secret_version" "api_key" {
-  secret_id = aws_secretsmanager_secret.api_key.id
-  secret_string = var.api_key_value  # Passed via CI/CD secrets
-}
-```
+For detailed documentation, see:
 
-### Example Access Grant (20_infra)
-
-```hcl
-resource "aws_iam_role_policy" "lambda_secrets" {
-  role = aws_iam_role.lambda.id
-  policy = jsonencode({
-    Statement = [{
-      Effect = "Allow"
-      Action = ["secretsmanager:GetSecretValue"]
-      Resource = [module.core.api_key_secret_arn]
-    }]
-  })
-}
-```
-
-### Example Secret Consumption (30_app)
-
-```python
-import boto3
-import json
-
-def lambda_handler(event, context):
-    client = boto3.client('secretsmanager')
-    secret_arn = os.environ['API_KEY_SECRET_ARN']
-    
-    response = client.get_secret_value(SecretId=secret_arn)
-    api_key = json.loads(response['SecretString'])
-    
-    # Use api_key safely
-    ...
-```
-
-**See**: `shared/docs/architecture.md` for detailed secret management strategy.
+- **Architecture**: `shared/docs/architecture.md` - System architecture and design
+- **CI/CD**: `shared/docs/ci-cd.md` - GitHub Actions workflows and OIDC setup
+- **OIDC Setup**: `shared/docs/oidc-setup.md` - Detailed AWS OIDC configuration guide
+- **Testing**: `shared/docs/testing.md` - Infrastructure testing guide
+- **Remote State**: `shared/docs/remote-state.md` - Terraform state management
+- **cb CLI**: `shared/docs/cb-cli.md` - Developer CLI tool documentation
 
 ## Best Practices
 
@@ -293,7 +390,8 @@ def lambda_handler(event, context):
    - `.terraform/` directories
 4. **Environment isolation**: Keep environment-specific values in `terraform.tfvars`
 5. **State management**: Never manually edit state files; use Terraform commands
-6. **Secret management**: Use AWS Secrets Manager; never store secrets in code or variables (see Secret Management section below)
+6. **Secret management**: Use AWS Secrets Manager; never store secrets in code or variables
+7. **Variable grouping**: Use object types to group related variables (see Variable Management section)
 
 ## Troubleshooting
 
