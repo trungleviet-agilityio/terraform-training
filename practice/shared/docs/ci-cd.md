@@ -104,42 +104,21 @@ Create GitHub Environments for each deployment target:
 
 ### AWS OIDC Setup
 
-1. Create IAM OIDC Identity Provider:
-   ```bash
-   aws iam create-open-id-connect-provider \
-     --url https://token.actions.githubusercontent.com \
-     --client-id-list sts.amazonaws.com \
-     --thumbprint-list <thumbprint>
-   ```
+The AWS OIDC setup is managed via Terraform in the `20_infra` layer. This eliminates the need for manual setup and ensures consistency across environments.
 
-2. Create IAM Role with Trust Policy:
-   ```json
-   {
-     "Version": "2012-10-17",
-     "Statement": [
-       {
-         "Effect": "Allow",
-         "Principal": {
-           "Federated": "arn:aws:iam::ACCOUNT:oidc-provider/token.actions.githubusercontent.com"
-         },
-         "Action": "sts:AssumeRoleWithWebIdentity",
-         "Condition": {
-           "StringEquals": {
-             "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
-           },
-           "StringLike": {
-             "token.actions.githubusercontent.com:sub": "repo:OWNER/REPO:*"
-           }
-         }
-       }
-     ]
-   }
-   ```
+**For detailed setup instructions, see: [OIDC Setup Guide](oidc-setup.md)**
 
-3. Attach Policies:
-   - Terraform state bucket access (S3)
-   - State locking table access (DynamoDB)
-   - Resource creation permissions (EC2, Lambda, API Gateway, etc.)
+**Quick Summary**:
+1. Deploy `10_core` layer to create state backend
+2. Configure `20_infra` with GitHub OIDC settings
+3. Deploy `20_infra` layer to create OIDC provider and IAM roles
+4. Add GitHub Secrets (`AWS_ROLE_ARN`, `AWS_REGION`)
+5. Test workflow execution
+
+**Components**:
+- OIDC Provider Module: Creates AWS IAM OIDC identity provider
+- Policies Module: Creates IAM policies (state access, plan, apply)
+- Roles Module: Creates IAM roles with trust policies (plan + apply)
 
 ## Local Development
 

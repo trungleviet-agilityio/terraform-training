@@ -1,5 +1,5 @@
 output "region" {
-  value       = data.aws_region.current.name
+  value       = data.aws_region.current.id
   description = "Current AWS region."
 }
 
@@ -91,4 +91,31 @@ output "eventbridge_schedule_state" {
 output "eventbridge_iam_role_arn" {
   value       = length(module.eventbridge_schedule) > 0 ? module.eventbridge_schedule[0].iam_role_arn : null
   description = "ARN of the IAM role used by EventBridge. Null if not created."
+}
+
+# OIDC Provider Outputs
+output "oidc_provider_arn" {
+  value       = length(module.oidc_provider) > 0 ? module.oidc_provider[0].oidc_provider_arn : null
+  description = "ARN of the OIDC provider for GitHub Actions. Null if not created."
+}
+
+# GitHub Actions Role Outputs
+output "terraform_plan_role_arn" {
+  value       = length(module.github_actions_roles) > 0 ? module.github_actions_roles[0].terraform_plan_role_arn : null
+  description = "ARN of the Terraform plan role for GitHub Actions. Use this for GitHub Secret AWS_ROLE_ARN in terraform-plan.yml workflow. Null if not created."
+}
+
+output "terraform_apply_role_arn" {
+  value       = length(module.github_actions_roles) > 0 ? module.github_actions_roles[0].terraform_apply_role_arn : null
+  description = "ARN of the Terraform apply role for GitHub Actions. Use this for GitHub Secret AWS_ROLE_ARN in terraform-apply.yml workflow. Null if not created."
+}
+
+output "terraform_plan_role_name" {
+  value       = length(module.github_actions_roles) > 0 ? module.github_actions_roles[0].terraform_plan_role_name : null
+  description = "Name of the Terraform plan role. Null if not created."
+}
+
+output "terraform_apply_role_name" {
+  value       = length(module.github_actions_roles) > 0 ? module.github_actions_roles[0].terraform_apply_role_name : null
+  description = "Name of the Terraform apply role. Null if not created."
 }
