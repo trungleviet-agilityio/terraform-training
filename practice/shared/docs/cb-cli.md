@@ -62,6 +62,56 @@ cb build
 cb build --only lambda-api
 ```
 
+## Hybrid Packaging Workflow
+
+This project supports a **hybrid packaging approach** that provides flexibility for different Lambda function requirements:
+
+### When to Use `cb build` vs Terraform's `archive_file`
+
+1. **Simple Functions (No Dependencies)**: Use Terraform's default `archive_file`
+   - Functions with only standard library imports
+   - No external dependencies required
+   - Terraform automatically packages during `terraform plan/apply`
+   - No manual build step needed
+
+2. **Complex Functions (With Dependencies)**: Use `cb build` + Terraform
+   - Functions requiring external packages (e.g., `boto3`, `fastapi`, `mangum`)
+   - Dependencies defined in `pyproject.toml` or `requirements.txt`
+   - Requires manual build step before Terraform deployment
+
+### Workflow for Functions with Dependencies
+
+```bash
+# Step 1: Build Lambda packages with dependencies
+cb build
+
+# Step 2: Configure Terraform to use pre-built zip files
+# In your Terraform configuration, set use_prebuilt_zip = true:
+# module "lambda_package" {
+#   source = "../../../components/lambda_simple_package"
+#   source_path      = "${path.module}/../../src/lambda/api_server"
+#   server_name      = "api_server"
+#   output_dir       = "${path.module}/../../out"
+#   use_prebuilt_zip = true  # Use zip file created by cb build
+# }
+
+# Step 3: Deploy with Terraform
+cd deploy/30_app/environments/dev
+terraform plan -var-file=terraform.tfvars
+terraform apply
+```
+
+### Workflow for Simple Functions
+
+```bash
+# No build step needed - Terraform handles packaging automatically
+cd deploy/30_app/environments/dev
+terraform plan -var-file=terraform.tfvars
+terraform apply
+```
+
+**See**: `deploy/components/lambda_simple_package/README.md` for detailed component documentation.
+
 ### `cb test`
 
 Runs build first, then validates packages in `out/`.

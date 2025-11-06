@@ -60,6 +60,30 @@ deploy/
 
 **Dependencies**: Requires `10_core` and `20_infra` outputs.
 
+#### Lambda Module Architecture
+
+The application layer uses a modular component-based architecture:
+
+**Components** (`deploy/components/`):
+- `lambda_simple_package`: Packages Lambda source code into zip files
+- `lambda_fastapi_server`: FastAPI Lambda wrapper component
+- `lambda_cron_server`: Cron Lambda wrapper component
+- `lambda_sqs_worker`: SQS worker Lambda wrapper component
+
+**Modules** (`deploy/30_app/modules/`):
+- `runtime_code_modules`: Packages all Lambda source code
+- `lambda_roles`: Creates IAM execution roles for Lambda functions
+- `api_server`: API Lambda module
+- `cron_server`: Cron Lambda module
+- `worker`: Worker Lambda module
+
+**Lambda Functions**:
+1. **API Server**: FastAPI application for HTTP API requests (triggered by API Gateway)
+2. **Cron Server**: Scheduled tasks via EventBridge (triggered by cron schedule)
+3. **Worker**: Processes messages from SQS queue (triggered by SQS event source mapping)
+
+See individual module README files for detailed usage and examples.
+
 ## Deployment Workflow
 
 ### Prerequisites
@@ -71,7 +95,10 @@ deploy/
 
 2. **Remote State**: S3 bucket and DynamoDB table will be created via Terraform modules in `10_core/modules/` (to be implemented)
 
-3. **Backend Configuration**: Each environment has a `providers.tf` file with backend and provider configuration
+3. **Backend Configuration**: 
+   - Each environment has a `providers.tf` file with static backend configuration
+   - Each environment has a `backend.tfvars` file with environment-specific bucket name
+   - Initialize with: `terraform init -backend-config=backend.tfvars`
 
 ### Deployment Steps
 
@@ -79,11 +106,50 @@ Deploy layers in sequential order: **10_core → 20_infra → 30_app**
 
 #### Step 1: Deploy Core Layer
 
+**⚠️ IMPORTANT**: For **first deployment**, you must bootstrap with local state. See `shared/docs/remote-state.md` for detailed bootstrap instructions.
+
+**Bootstrap Process (First Time Only)**:
+
+**⚠️ Do NOT comment out the backend block** - this causes Terraform parsing errors. Use file swapping instead:
+
 ```bash
 cd 10_core/environments/dev
 
-# Initialize Terraform (backend config is in providers.tf)
+# Step 1: Backup providers.tf with backend config
+cp providers.tf providers.tf.backend
+
+# Step 2: Use local state version (no backend block)
+cp providers.tf.local.example providers.tf
+
+# Step 3: Initialize with local state
 terraform init
+
+# Step 4: Apply to create state backend resources
+terraform apply -var-file=terraform.tfvars
+
+# Step 5: Get bucket name from outputs
+terraform output state_backend_bucket_name
+
+# Step 6: Update backend.tfvars with bucket name
+# (Edit backend.tfvars and update bucket value)
+
+# Step 7: Restore providers.tf with backend config
+cp providers.tf.backend providers.tf
+
+# Step 8: Reinitialize and migrate state
+terraform init -backend-config=backend.tfvars -migrate-state
+
+# Step 9: Clean up backup
+rm providers.tf.backend
+```
+
+**Normal Deployment (After Bootstrap)**:
+
+```bash
+cd 10_core/environments/dev
+
+# Initialize Terraform
+terraform init -backend-config=backend.tfvars
 
 # Review the plan
 terraform plan -var-file=terraform.tfvars
@@ -161,6 +227,37 @@ This separation allows:
 - Layer-specific state management
 - Easier debugging and rollback
 
+**Remote State Usage**: Layers use `terraform_remote_state` to share outputs automatically:
+- **20_infra** gets backend configuration from **10_core** (no manual `backend_config` needed)
+- **30_app** gets SQS queue ARN from **20_infra** (no manual configuration needed)
+
+See `shared/docs/terraform-state-and-backend.md` for detailed information about remote state usage.
+
+### Backend Configuration Pattern
+
+Backend configuration uses a two-file approach:
+
+1. **`providers.tf`**: Contains static backend configuration (region, key, encrypt, dynamodb_table)
+2. **`backend.tfvars`**: Contains environment-specific values (bucket name)
+
+**Initialization**:
+```bash
+cd deploy/30_app/environments/dev
+terraform init -backend-config=backend.tfvars
+```
+
+**Why this pattern?**
+- Avoids hardcoded bucket names in version control
+- Allows different buckets per environment
+- Keeps shared configuration in `providers.tf`
+- Environment-specific values in `backend.tfvars` (can be gitignored if needed)
+
+**Best Practices**:
+- Update `backend.tfvars` with your AWS account ID
+- Use consistent bucket naming: `tt-practice-tf-state-{environment}-{account-id}`
+- Keep `backend.tfvars` in version control (bucket names are not sensitive)
+- Each environment folder has its own `backend.tfvars` file
+
 ## State Management
 
 ### Remote State Structure
@@ -178,6 +275,55 @@ DynamoDB table provides state locking to prevent concurrent modifications:
 - Table: `tt-practice-tf-locks`
 - Primary key: `LockID` (string)
 - Billing mode: Pay-per-request
+
+## Output Management
+
+### Output Structure
+
+This project uses a three-level output structure to support `terraform_remote_state`:
+
+```
+modules/*/outputs.tf     → Module-level outputs
+main/outputs.tf          → Re-exposes module outputs
+environments/dev/outputs.tf → Re-exposes main outputs (for remote state access)
+```
+
+**Why this duplication?**
+
+The `terraform_remote_state` data source can only access outputs from the **root module** (the directory where `terraform apply` runs). Since we run from `environments/dev/`, outputs must be re-exposed there.
+
+### Best Practices
+
+1. **Only expose outputs in `environments/dev/outputs.tf` that are:**
+   - Consumed via `terraform_remote_state` by other layers, OR
+   - Useful for debugging/troubleshooting (via `terraform output`)
+
+2. **Always reference main outputs**: `value = module.main.output_name`
+
+3. **Document the purpose**: Add comments indicating which outputs are for remote state vs general use
+
+4. **Validate consistency**: Use the validation script to ensure outputs stay in sync
+
+### Validating Outputs
+
+Use the validation script to check output consistency:
+
+```bash
+# Validate all layers
+./deploy/scripts/validate-outputs.sh
+
+# Validate specific layer
+./deploy/scripts/validate-outputs.sh 10_core
+```
+
+The script ensures:
+- ✅ Environment outputs reference `module.main.*`
+- ✅ Referenced main outputs exist
+- ✅ Outputs are properly mapped
+
+**See**: 
+- `shared/docs/terraform-state-and-backend.md` - Detailed explanation of output structure
+- `shared/docs/output-reference.md` - Complete output reference table
 
 ## Module Structure
 
@@ -369,15 +515,69 @@ Secrets follow a layered approach:
 
 **See**: `shared/docs/architecture.md` for detailed secret management strategy and examples.
 
+## Lambda Components and Modules
+
+### Component Usage
+
+Components are reusable building blocks located in `deploy/components/`:
+
+- **`lambda_simple_package`**: Packages Lambda source code into zip files (supports hybrid packaging: archive_file or pre-built zip)
+- **`lambda_fastapi_server`**: Creates FastAPI Lambda function
+- **`lambda_cron_server`**: Creates cron Lambda function
+- **`lambda_sqs_worker`**: Creates SQS worker Lambda with event source mapping
+
+Each component has a README.md file with detailed usage examples and variable descriptions.
+
+### Hybrid Packaging Approach
+
+The `lambda_simple_package` component supports a **hybrid packaging workflow**:
+
+1. **Simple Functions (No Dependencies)**: Uses Terraform's `archive_file` by default
+   - No manual build step required
+   - Terraform automatically packages during `terraform plan/apply`
+   - Suitable for functions with only standard library imports
+
+2. **Complex Functions (With Dependencies)**: Uses pre-built zip files from `cb build`
+   - Run `cb build` first to install dependencies and create zip files
+   - Set `use_prebuilt_zip = true` in Terraform configuration
+   - Terraform will use the pre-built zip file instead of creating a new one
+
+**See**: `shared/docs/cb-cli.md` for detailed hybrid packaging workflow documentation.
+
+### Module Structure
+
+Modules in `deploy/30_app/modules/` orchestrate components:
+
+- **`runtime_code_modules`**: Packages all Lambda source code using `lambda_simple_package` component
+- **`lambda_roles`**: Creates IAM execution roles for all Lambda functions
+- **`api_server`**: Creates API Lambda using `lambda_fastapi_server` component
+- **`cron_server`**: Creates cron Lambda using `lambda_cron_server` component
+- **`worker`**: Creates worker Lambda using `lambda_sqs_worker` component
+
+### Lambda Deployment Flow
+
+```
+src/lambda/
+  ↓ (runtime_code_modules packages source code)
+out/
+  ↓ (api_server/cron_server/worker modules use components)
+Lambda Functions
+  ↓ (outputs ARNs for integration)
+20_infra layer (API Gateway, EventBridge)
+```
+
+See individual module README files for detailed examples and configuration options.
+
 ## Documentation
 
 For detailed documentation, see:
 
-- **Architecture**: `shared/docs/architecture.md` - System architecture and design
+- **Terraform State & Backend**: `shared/docs/terraform-state-and-backend.md` - Comprehensive guide on Terraform state, backend, workflow, and remote state usage
+- **Remote State Configuration**: `shared/docs/remote-state.md` - Detailed backend setup, bootstrap process, and remote state configuration
+- **Architecture**: `shared/docs/architecture.md` - System architecture and design (includes Lambda module structure)
 - **CI/CD**: `shared/docs/ci-cd.md` - GitHub Actions workflows and OIDC setup
 - **OIDC Setup**: `shared/docs/oidc-setup.md` - Detailed AWS OIDC configuration guide
 - **Testing**: `shared/docs/testing.md` - Infrastructure testing guide
-- **Remote State**: `shared/docs/remote-state.md` - Terraform state management
 - **cb CLI**: `shared/docs/cb-cli.md` - Developer CLI tool documentation
 
 ## Best Practices
@@ -412,7 +612,12 @@ aws dynamodb delete-item \
 
 To migrate from local to remote state:
 ```bash
-terraform init -migrate-state
+terraform init -backend-config=backend.tfvars -migrate-state
+```
+
+To reconfigure backend:
+```bash
+terraform init -backend-config=backend.tfvars -reconfigure
 ```
 
 ### Import Existing Resources

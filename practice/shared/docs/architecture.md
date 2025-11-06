@@ -26,6 +26,8 @@ Platform services that applications depend on:
 
 **Dependencies**: Requires `10_core` outputs (tags, account ID, region).
 
+**Remote State Usage**: Uses `terraform_remote_state` to automatically retrieve backend configuration from `10_core` layer. See `deploy/20_infra/environments/dev/main.tf` for implementation.
+
 ### 30_app - Application Layer
 Application workloads and compute resources:
 - Lambda functions (FastAPI API, SQS worker, cron producer)
@@ -34,6 +36,54 @@ Application workloads and compute resources:
 - Lambda layers (for zip deployment mode)
 
 **Dependencies**: Requires `10_core` and `20_infra` outputs.
+
+**Remote State Usage**: Uses `terraform_remote_state` to automatically retrieve SQS queue ARN from `20_infra` layer. See `deploy/30_app/environments/dev/main.tf` for implementation.
+
+#### Lambda Module Structure
+
+The application layer follows a modular architecture with reusable components:
+
+**Components** (`deploy/components/`):
+- `lambda_simple_package`: Packages Lambda source code into zip files
+- `lambda_fastapi_server`: FastAPI Lambda wrapper component
+- `lambda_cron_server`: Cron Lambda wrapper component
+- `lambda_sqs_worker`: SQS worker Lambda wrapper component
+
+**Modules** (`deploy/30_app/modules/`):
+- `runtime_code_modules`: Packages all Lambda source code
+- `lambda_roles`: Creates IAM execution roles for Lambda functions
+- `api_server`: API Lambda module (uses `lambda_fastapi_server` component)
+- `cron_server`: Cron Lambda module (uses `lambda_cron_server` component)
+- `worker`: Worker Lambda module (uses `lambda_sqs_worker` component)
+
+**Lambda Functions**:
+1. **API Server** (`api_server`): FastAPI application for HTTP API requests
+   - Handler: `api_server.lambda_handler`
+   - Triggered by: API Gateway (configured in `20_infra` layer)
+   - Outputs: Function ARN for API Gateway integration
+
+2. **Cron Server** (`cron_server`): Scheduled tasks via EventBridge
+   - Handler: `cron_server.lambda_handler`
+   - Triggered by: EventBridge schedule (configured in `20_infra` layer)
+   - Outputs: Function ARN for EventBridge integration
+
+3. **Worker** (`worker`): Processes messages from SQS queue
+   - Handler: `worker.lambda_handler`
+   - Triggered by: SQS event source mapping (created automatically)
+   - Outputs: Function ARN and event source mapping ID
+
+**Component Usage Flow**:
+```
+runtime_code_modules (packages source code)
+    ↓
+lambda_roles (creates IAM roles)
+    ↓
+api_server/cron_server/worker modules (use components)
+    ↓
+Lambda functions created
+```
+
+See individual module README files for detailed usage examples.
 
 ## Component Architecture
 
@@ -90,7 +140,11 @@ Lambda (SQS Worker)
 - **EventBridge**: Event-driven scheduling (cron-based)
 
 ### Storage & Database
-- **DynamoDB**: NoSQL database for application data (optional)
+- **DynamoDB**: NoSQL database for application data
+  - Key-value tables for simple lookups (user data, configuration)
+  - Time-series tables for events, logs, metrics (with TTL support)
+  - Tables created in `20_infra` layer as shared resources
+  - Lambda functions have IAM permissions to read/write DynamoDB tables
 - **S3**: Terraform state storage (backend)
 
 ### Security & Access
@@ -122,6 +176,18 @@ Lambda (SQS Worker)
    - EventBridge triggers Producer Lambda on schedule (cron)
    - Producer Lambda enqueues tasks to SQS
    - Tasks are processed by Worker Lambda
+
+### DynamoDB Table Structure Examples
+
+**Key-Value Table** (user-data):
+- Partition Key: `user_id` (String)
+- Use cases: User profiles, configuration data, simple lookups
+
+**Time-Series Table** (events):
+- Partition Key: `event_type` (String)
+- Sort Key: `timestamp` (Number)
+- TTL: Enabled on `ttl` attribute
+- Use cases: Event logs, metrics, time-series data
 
 ## Environment Structure
 
@@ -240,7 +306,10 @@ def lambda_handler(event, context):
 - **Remote State**: Stored in S3 with DynamoDB state locking
 - **State Isolation**: Each layer maintains separate state files
 - **Backend Configuration**: Configured per environment via `backend.tfvars`
+- **Remote State Usage**: Layers use `terraform_remote_state` to share outputs automatically (e.g., 20_infra gets backend config from 10_core, 30_app gets SQS ARN from 20_infra)
 - **CI/CD Access**: GitHub Actions uses OIDC to assume IAM roles (no static credentials)
+
+**See**: `shared/docs/terraform-state-and-backend.md` for comprehensive guide on Terraform state and remote state usage.
 
 ## Roadmap (Future Enhancements)
 
