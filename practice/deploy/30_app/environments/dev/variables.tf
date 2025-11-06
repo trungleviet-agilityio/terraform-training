@@ -36,3 +36,15 @@ variable "environment" {
     error_message = "Environment must be one of: dev, stage, prod."
   }
 }
+
+# Optional: To easy switch between zip and container deployment in the future
+variable "deploy_mode" {
+  description = "Deployment mode for Lambda functions: 'zip' or 'container'"
+  type        = string
+  default     = "zip"
+
+  validation {
+    condition     = contains(["zip", "container"], var.deploy_mode)
+    error_message = "deploy_mode must be either 'zip' or 'container'."
+  }
+}

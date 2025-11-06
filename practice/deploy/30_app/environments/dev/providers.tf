@@ -9,12 +9,14 @@ terraform {
   }
 
   # S3 backend configuration
+  # Environment-specific values (bucket name) are provided via backend.tfvars
+  # Usage: terraform init -backend-config=backend.tfvars
   backend "s3" {
-    bucket  = "tt-practice-tf-state-<unique>"
-    key     = "app/terraform.tfstate"
-    region  = "ap-southeast-1" # Singapore
-    encrypt = true
-    # dynamodb_table = "tt-practice-tf-locks" # Consider using this for locking the state file
+    key            = "app/terraform.tfstate"
+    region         = "ap-southeast-1" # Singapore
+    encrypt        = true
+    dynamodb_table = "tt-practice-tf-locks"
+    # bucket is provided via backend.tfvars file
   }
 }
 
