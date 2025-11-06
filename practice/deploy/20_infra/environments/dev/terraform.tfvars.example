@@ -15,18 +15,18 @@ github_oidc_config = {
   # allowed_branches  = ["main", "develop"]  # Optional: Restrict to specific branches
 }
 
-# Backend Configuration (grouped - from 10_core layer outputs)
-# IMPORTANT: These values must be obtained from 10_core layer outputs after deploying 10_core
-# Run these commands in 10_core/environments/dev/:
-#   terraform output state_backend_bucket_arn
-#   terraform output state_backend_dynamodb_table_arn
-#   terraform output account_id
-# Then replace the empty strings below with those values
-backend_config = {
-  bucket_arn = ""  # Replace with output from: terraform output state_backend_bucket_arn
-  table_arn  = ""  # Replace with output from: terraform output state_backend_dynamodb_table_arn
-  account_id = ""  # Replace with output from: terraform output account_id
-}
+# Backend Configuration
+# =====================
+# Backend configuration is automatically retrieved from 10_core layer using terraform_remote_state
+# in main.tf. No manual configuration needed here.
+#
+# The backend_config is constructed from 10_core outputs:
+# - bucket_arn: Retrieved from 10_core state_backend_bucket_arn output
+# - table_arn: Retrieved from 10_core state_backend_dynamodb_table_arn output
+# - account_id: Retrieved from 10_core account_id output
+#
+# Make sure 10_core layer is deployed before deploying 20_infra layer.
+# See shared/docs/terraform-state-and-backend.md for detailed information about remote state usage.
 
 # Optional: Lambda Integration (from 30_app layer)
 # Uncomment and set these after Lambda functions are created in 30_app layer
@@ -45,3 +45,32 @@ backend_config = {
 # - EventBridge schedule_name = "producer" (module default)
 # - SQS is always created for practice project
 # - API Gateway and EventBridge are only created when Lambda ARNs are provided
+
+# Optional: DynamoDB Tables Configuration
+# Uncomment and configure tables as needed for your application
+# See modules/dynamodb/README.md for detailed configuration options
+#
+# dynamodb_tables = {
+#   # Example: Key-value table for user data
+#   "user-data" = {
+#     partition_key = "user_id"
+#     type          = "key-value"
+#     attribute_types = {
+#       user_id = "S"
+#     }
+#     enable_point_in_time_recovery = true
+#   }
+#
+#   # Example: Time-series table for events
+#   "events" = {
+#     partition_key = "event_type"
+#     sort_key      = "timestamp"
+#     type          = "time-series"
+#     attribute_types = {
+#       event_type = "S"
+#       timestamp  = "N"
+#     }
+#     enable_ttl = true
+#     ttl_attribute = "ttl"
+#   }
+# }

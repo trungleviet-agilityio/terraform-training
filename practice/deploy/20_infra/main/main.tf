@@ -85,3 +85,15 @@ module "github_actions_roles" {
 
   tags = local.common_tags
 }
+
+# DynamoDB Tables (optional, only created if tables are configured)
+module "dynamodb" {
+  count  = length(var.dynamodb_tables) > 0 ? 1 : 0
+  source = "../modules/dynamodb"
+
+  project_name = var.project_name
+  environment  = var.environment
+  tables       = var.dynamodb_tables
+
+  tags = local.common_tags
+}
