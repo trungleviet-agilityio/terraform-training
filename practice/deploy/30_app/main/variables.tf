@@ -28,3 +28,14 @@ variable "deploy_mode" {
     error_message = "deploy_mode must be either 'zip' or 'container'."
   }
 }
+
+variable "sqs_queue_arn" {
+  type        = string
+  description = "ARN of the SQS queue from 20_infra layer"
+}
+
+variable "dynamodb_table_arns" {
+  type        = list(string)
+  description = "List of DynamoDB table ARNs from 20_infra layer"
+  default     = []
+}
