@@ -1,3 +1,8 @@
+# Outputs for the Infrastructure Layer
+
+# ============================================================================
+# General Use Outputs (Available for local use, not consumed via remote state)
+# ============================================================================
 output "region" {
   value       = data.aws_region.current.id
   description = "Current AWS region."
@@ -33,44 +38,44 @@ output "api_gateway_name" {
   description = "API Gateway name. Null if not created."
 }
 
-output "sqs_queue_url" {
-  value       = length(module.sqs) > 0 ? module.sqs[0].queue_url : null
-  description = "URL of the main SQS queue. Null if not created."
+output "sqs_queue_arn" {
+  value       = module.sqs.queue_arn
+  description = "ARN of the main SQS queue. [REMOTE STATE] Used by 30_app for worker Lambda event source mapping."
 }
 
-output "sqs_queue_arn" {
-  value       = length(module.sqs) > 0 ? module.sqs[0].queue_arn : null
-  description = "ARN of the main SQS queue. Null if not created."
+output "sqs_queue_url" {
+  value       = module.sqs.queue_url
+  description = "URL of the main SQS queue."
 }
 
 output "sqs_queue_name" {
-  value       = length(module.sqs) > 0 ? module.sqs[0].queue_name : null
-  description = "Name of the main SQS queue. Null if not created."
+  value       = module.sqs.queue_name
+  description = "Name of the main SQS queue."
 }
 
 output "sqs_dlq_url" {
-  value       = length(module.sqs) > 0 ? module.sqs[0].dlq_url : null
-  description = "URL of the Dead Letter Queue. Null if not created or DLQ disabled."
+  value       = module.sqs.dlq_url
+  description = "URL of the Dead Letter Queue. Null if DLQ disabled."
 }
 
 output "sqs_dlq_arn" {
-  value       = length(module.sqs) > 0 ? module.sqs[0].dlq_arn : null
-  description = "ARN of the Dead Letter Queue. Null if not created or DLQ disabled."
+  value       = module.sqs.dlq_arn
+  description = "ARN of the Dead Letter Queue. Null if DLQ disabled."
 }
 
 output "sqs_dlq_name" {
-  value       = length(module.sqs) > 0 ? module.sqs[0].dlq_name : null
-  description = "Name of the Dead Letter Queue. Null if not created or DLQ disabled."
+  value       = module.sqs.dlq_name
+  description = "Name of the Dead Letter Queue. Null if DLQ disabled."
 }
 
 output "sqs_dlq_alarm_arn" {
-  value       = length(module.sqs) > 0 ? module.sqs[0].dlq_alarm_arn : null
-  description = "ARN of the CloudWatch alarm for DLQ messages. Null if not created or alarm disabled."
+  value       = module.sqs.dlq_alarm_arn
+  description = "ARN of the CloudWatch alarm for DLQ messages. Null if alarm disabled."
 }
 
 output "sqs_dlq_alarm_name" {
-  value       = length(module.sqs) > 0 ? module.sqs[0].dlq_alarm_name : null
-  description = "Name of the CloudWatch alarm for DLQ messages. Null if not created or alarm disabled."
+  value       = module.sqs.dlq_alarm_name
+  description = "Name of the CloudWatch alarm for DLQ messages. Null if alarm disabled."
 }
 
 output "eventbridge_schedule_arn" {
@@ -118,4 +123,20 @@ output "terraform_plan_role_name" {
 output "terraform_apply_role_name" {
   value       = length(module.github_actions_roles) > 0 ? module.github_actions_roles[0].terraform_apply_role_name : null
   description = "Name of the Terraform apply role. Null if not created."
+}
+
+# DynamoDB Outputs
+output "dynamodb_table_names" {
+  value       = length(module.dynamodb) > 0 ? module.dynamodb[0].table_names : {}
+  description = "Map of DynamoDB table names (key -> table name). Empty map if no tables configured."
+}
+
+output "dynamodb_table_arns" {
+  value       = length(module.dynamodb) > 0 ? module.dynamodb[0].table_arns : {}
+  description = "Map of DynamoDB table ARNs (key -> table ARN). Empty map if no tables configured. [REMOTE STATE] Used by 30_app for Lambda IAM permissions."
+}
+
+output "dynamodb_table_stream_arns" {
+  value       = length(module.dynamodb) > 0 ? module.dynamodb[0].table_stream_arns : {}
+  description = "Map of DynamoDB table stream ARNs (key -> stream ARN, null if stream not enabled). Empty map if no tables configured."
 }

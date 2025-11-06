@@ -9,13 +9,14 @@ terraform {
   }
 
   # S3 backend configuration
-  # Using the same state backend bucket created by 10_core layer
+  # Environment-specific values (bucket name) are provided via backend.tfvars
+  # Usage: terraform init -backend-config=backend.tfvars
   backend "s3" {
-    bucket         = "tt-practice-tf-state-dev-057336397237"
     key            = "infra/terraform.tfstate"
-    region         = "ap-southeast-1" # Singapore
+    region         = "ap-southeast-1"
     encrypt        = true
     dynamodb_table = "tt-practice-tf-locks"
+    # bucket is provided via backend.tfvars file
   }
 }
 

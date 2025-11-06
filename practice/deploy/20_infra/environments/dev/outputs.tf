@@ -1,3 +1,9 @@
+# Outputs for the Dev Environment
+# ===============================
+# These outputs are consumed by other layers via terraform_remote_state
+#
+# Outputs marked with [REMOTE STATE] are consumed by other layers via terraform_remote_state
+
 output "region" {
   value       = module.main.region
   description = "AWS region."
@@ -40,7 +46,7 @@ output "sqs_queue_url" {
 
 output "sqs_queue_arn" {
   value       = module.main.sqs_queue_arn
-  description = "ARN of the main SQS queue."
+  description = "ARN of the main SQS queue. Used by 30_app layer via terraform_remote_state."
 }
 
 output "sqs_queue_name" {
@@ -93,6 +99,14 @@ output "eventbridge_iam_role_arn" {
   description = "ARN of the IAM role used by EventBridge."
 }
 
+output "dynamodb_table_arns" {
+  value       = module.main.dynamodb_table_arns
+  description = "Map of DynamoDB table ARNs (key -> table ARN). Used by 30_app layer via terraform_remote_state for Lambda IAM permissions."
+}
+
+# ============================================================================
+# CI/CD Outputs (Used by GitHub Actions workflows)
+# ============================================================================
 # OIDC Provider Outputs
 output "oidc_provider_arn" {
   value       = module.main.oidc_provider_arn
