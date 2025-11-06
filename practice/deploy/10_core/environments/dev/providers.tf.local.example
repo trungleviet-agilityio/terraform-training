@@ -1,0 +1,37 @@
+# Bootstrap Helper: providers.tf.local
+# 
+# INSTRUCTIONS FOR BOOTSTRAP:
+# 1. Rename providers.tf to providers.tf.backend
+# 2. Copy this file to providers.tf
+# 3. Run: terraform init (will use local state)
+# 4. Run: terraform apply -var-file=terraform.tfvars
+# 5. Get bucket name: terraform output state_backend_bucket_name
+# 6. Update backend.tfvars with bucket name
+# 7. Delete providers.tf and rename providers.tf.backend back to providers.tf
+# 8. Run: terraform init -backend-config=backend.tfvars -migrate-state
+
+terraform {
+  required_version = ">= 1.5.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+
+  # NO BACKEND - using local state for bootstrap
+}
+
+# Configure the AWS provider
+provider "aws" {
+  region = var.aws_region
+
+  default_tags {
+    tags = {
+      Environment = var.environment
+      Project     = var.project_name
+      ManagedBy   = "Terraform"
+    }
+  }
+}

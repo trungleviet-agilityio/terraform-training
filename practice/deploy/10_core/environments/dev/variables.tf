@@ -1,8 +1,4 @@
 # Variables for the dev environment
-# ============================================
-# ROOT MODULE VARIABLES
-# These variables are passed to the main module
-# ============================================
 
 variable "aws_region" {
   description = "The AWS region to deploy resources to"

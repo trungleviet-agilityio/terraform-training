@@ -9,14 +9,17 @@ terraform {
   }
 
   # S3 backend configuration
-  # NOTE: Update bucket name after state backend is created (see bootstrap-state.md)
-  # Temporarily disabled to bootstrap state backend - uncomment after first apply
+  # Environment-specific values (bucket name) are provided via backend.tfvars
+  # Usage: terraform init -backend-config=backend.tfvars
+
+  # IMPORTANT: For FIRST deployment, you must bootstrap with local state first
+  # See: shared/docs/remote-state.md for bootstrap instructions
   backend "s3" {
-    bucket         = "tt-practice-tf-state-dev-057336397237"
     key            = "core/terraform.tfstate"
-    region         = "ap-southeast-1" # Singapore
+    region         = "ap-southeast-1"
     encrypt        = true
     dynamodb_table = "tt-practice-tf-locks"
+    # bucket is provided via backend.tfvars file
   }
 }
 
