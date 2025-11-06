@@ -6,5 +6,26 @@ environment  = "dev"
 # Optional: Deployment mode for Lambda functions
 # deploy_mode = "zip"  # Options: "zip" (default) or "container"
 
-# Note: Lambda functions will be implemented in future tasks
-# This layer uses sub-module defaults for most configuration
+# Backend Configuration
+# =====================
+# The backend configuration is managed via backend.tfvars file.
+# 
+# Initialization:
+#   1. Copy backend.tfvars.example to backend.tfvars (if needed)
+#   2. Update bucket name in backend.tfvars with your AWS account ID
+#   3. Initialize with: terraform init -backend-config=backend.tfvars
+#
+# The backend.tfvars file contains environment-specific backend configuration:
+#   - bucket: S3 bucket name for state storage (environment-specific)
+#   - Other backend config (key, region, encrypt, dynamodb_table) is in providers.tf
+#
+# Note: The bucket name pattern is: tt-practice-tf-state-{environment}-{account-id}
+#       Replace {account-id} with your AWS account ID
+
+# Remote State Dependencies
+# ==========================
+# SQS queue ARN is automatically retrieved from 20_infra layer remote state
+# Make sure 20_infra layer is deployed before deploying 30_app layer
+#
+# The remote state bucket name should match the one configured in backend.tfvars
+# for consistency across layers in the same environment
