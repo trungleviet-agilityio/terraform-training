@@ -41,6 +41,16 @@ jobs:
         run: terraform fmt -check
         continue-on-error: false
 
+      - name: Validate Output Consistency
+        id: validate-outputs
+        run: |
+          cd practice/deploy
+          chmod +x scripts/validate-outputs.sh
+          ./scripts/validate-outputs.sh ${{ matrix.layer }}
+        continue-on-error: false
+        # Note: This validates that environment outputs correctly reference main outputs
+        # Can run without backend access as it only parses Terraform files
+
       - name: Terraform Init (No Backend)
         id: init
         run: terraform init -backend=false
