@@ -1,33 +1,8 @@
+# Core Configuration
+# These are the only required variables for 10_core layer
 aws_region   = "ap-southeast-1"
 project_name = "tt-practice"
 environment  = "dev"
 
-# Optional: CloudWatch log retention (days)
-# Valid values: 0 (never expire), 1, 3, 5, 7, 14, 30, 60, 90, 120, 180, 365, 400, 545, 731, 1827, 3653
-log_retention_in_days = 14
-
-# Optional: Create KMS CMK for encryption
-create_kms = false
-kms_alias  = "alias/tt-practice-kms"
-
-# Additional tags
-tags = {
-  CostCenter = "training"
-  Owner      = "your-alias"
-}
-
-# AWS Secrets Manager secrets
-# Secret values should NOT be stored here - set them via AWS Console or CI/CD after creation
-secrets = {
-  api_key = {
-    description    = "API key for external service"
-    secret_string  = null  # Set via AWS Console or CI/CD
-    kms_key_id     = null   # Optional: Use KMS key ARN if create_kms = true
-  }
-  # Add more secrets as needed:
-  # database_password = {
-  #   description   = "Database connection password"
-  #   secret_string = null
-  #   kms_key_id    = null
-  # }
-}
+# Note: All other configuration (log retention, KMS, secrets) is managed
+# by sub-modules using their defaults or removed from practice project.
