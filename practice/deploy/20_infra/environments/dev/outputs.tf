@@ -39,6 +39,16 @@ output "api_gateway_name" {
   description = "API Gateway name."
 }
 
+output "api_gateway_custom_domain_name" {
+  value       = module.main.api_gateway_custom_domain_name
+  description = "API Gateway custom domain name. Null if custom domain not configured."
+}
+
+output "api_gateway_custom_domain_arn" {
+  value       = module.main.api_gateway_custom_domain_arn
+  description = "API Gateway custom domain ARN. Null if custom domain not configured."
+}
+
 output "sqs_queue_url" {
   value       = module.main.sqs_queue_url
   description = "URL of the main SQS queue."
@@ -79,29 +89,45 @@ output "sqs_dlq_alarm_name" {
   description = "Name of the CloudWatch alarm for DLQ messages."
 }
 
-output "eventbridge_schedule_arn" {
-  value       = module.main.eventbridge_schedule_arn
-  description = "ARN of the EventBridge schedule."
-}
-
-output "eventbridge_schedule_name" {
-  value       = module.main.eventbridge_schedule_name
-  description = "Name of the EventBridge schedule."
-}
-
-output "eventbridge_schedule_state" {
-  value       = module.main.eventbridge_schedule_state
-  description = "State of the EventBridge schedule."
-}
-
-output "eventbridge_iam_role_arn" {
-  value       = module.main.eventbridge_iam_role_arn
-  description = "ARN of the IAM role used by EventBridge."
+output "dynamodb_table_names" {
+  value       = module.main.dynamodb_table_names
+  description = "Map of DynamoDB table names (key -> table name). [REMOTE STATE] Used by 30_app for Lambda environment variables."
 }
 
 output "dynamodb_table_arns" {
   value       = module.main.dynamodb_table_arns
   description = "Map of DynamoDB table ARNs (key -> table ARN). Used by 30_app layer via terraform_remote_state for Lambda IAM permissions."
+}
+
+# Lambda Role Outputs (for 30_app layer consumption)
+output "lambda_api_role_arn" {
+  value       = module.main.lambda_api_role_arn
+  description = "ARN of the IAM role for API Lambda function. [REMOTE STATE] Used by 30_app for Lambda function creation."
+}
+
+output "lambda_api_role_name" {
+  value       = module.main.lambda_api_role_name
+  description = "Name of the IAM role for API Lambda function."
+}
+
+output "lambda_cron_role_arn" {
+  value       = module.main.lambda_cron_role_arn
+  description = "ARN of the IAM role for Cron Lambda function. [REMOTE STATE] Used by 30_app for Lambda function creation."
+}
+
+output "lambda_cron_role_name" {
+  value       = module.main.lambda_cron_role_name
+  description = "Name of the IAM role for Cron Lambda function."
+}
+
+output "lambda_worker_role_arn" {
+  value       = module.main.lambda_worker_role_arn
+  description = "ARN of the IAM role for Worker Lambda function. [REMOTE STATE] Used by 30_app for Lambda function creation."
+}
+
+output "lambda_worker_role_name" {
+  value       = module.main.lambda_worker_role_name
+  description = "Name of the IAM role for Worker Lambda function."
 }
 
 # ============================================================================

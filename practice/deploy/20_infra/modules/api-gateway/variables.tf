@@ -8,16 +8,6 @@ variable "environment" {
   type        = string
 }
 
-variable "lambda_function_arn" {
-  description = "ARN of the Lambda function to integrate with API Gateway"
-  type        = string
-}
-
-variable "lambda_function_name" {
-  description = "Name of the Lambda function (for invoke permission)"
-  type        = string
-}
-
 variable "api_name" {
   description = "Name of the API Gateway (defaults to project_name-environment-api)"
   type        = string
@@ -41,4 +31,15 @@ variable "tags" {
   description = "Tags to apply to all resources"
   type        = map(string)
   default     = {}
+}
+
+# Custom Domain Configuration (optional)
+variable "custom_domain_config" {
+  description = "Custom domain configuration for API Gateway. Leave null to use default endpoint."
+  type = object({
+    certificate_arn = string           # ACM certificate ARN (must be in us-east-1 for API Gateway)
+    domain_name     = string           # Custom domain name (e.g., api.dev.example.com)
+    hosted_zone_id  = optional(string) # Route53 hosted zone ID (optional, will create A record if provided)
+  })
+  default = null
 }

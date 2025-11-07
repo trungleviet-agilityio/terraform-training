@@ -18,43 +18,6 @@ variable "environment" {
   }
 }
 
-# Lambda integration variables (from 30_app layer)
-# Only needed if you plan to integrate Lambda with API Gateway or EventBridge
-variable "api_lambda_function_arn" {
-  type        = string
-  description = "ARN of the Lambda function for API Gateway integration. Leave empty if not yet created."
-  default     = ""
-}
-
-variable "api_lambda_function_name" {
-  type        = string
-  description = "Name of the Lambda function for API Gateway integration. Leave empty if not yet created."
-  default     = ""
-}
-
-variable "eventbridge_lambda_function_arn" {
-  type        = string
-  description = "ARN of the Lambda function for EventBridge schedule. Leave empty if not yet created."
-  default     = ""
-}
-
-variable "eventbridge_lambda_function_name" {
-  type        = string
-  description = "Name of the Lambda function for EventBridge schedule. Leave empty if not yet created."
-  default     = ""
-}
-
-variable "eventbridge_schedule_expression" {
-  type        = string
-  description = "Schedule expression (cron or rate). Leave empty to skip EventBridge creation."
-  default     = ""
-
-  validation {
-    condition     = var.eventbridge_schedule_expression == "" || can(regex("^(cron|rate)\\(.*\\)$", var.eventbridge_schedule_expression))
-    error_message = "eventbridge_schedule_expression must be empty string or a valid cron/rate expression."
-  }
-}
-
 # GitHub OIDC Configuration (grouped to reduce duplication)
 variable "github_oidc_config" {
   type = object({
@@ -97,18 +60,29 @@ variable "backend_config" {
 variable "dynamodb_tables" {
   description = "Map of DynamoDB table configurations. See modules/dynamodb/README.md for configuration options."
   type = map(object({
-    partition_key = string
-    sort_key      = optional(string)
-    attribute_types = optional(map(string), {})
-    type          = optional(string, "key-value")
-    billing_mode  = optional(string, "PAY_PER_REQUEST")
-    enable_ttl    = optional(bool, false)
-    ttl_attribute = optional(string, "ttl")
+    partition_key                 = string
+    sort_key                      = optional(string)
+    attribute_types               = optional(map(string), {})
+    type                          = optional(string, "key-value")
+    billing_mode                  = optional(string, "PAY_PER_REQUEST")
+    enable_ttl                    = optional(bool, false)
+    ttl_attribute                 = optional(string, "ttl")
     enable_point_in_time_recovery = optional(bool, false)
-    enable_stream = optional(bool, false)
-    stream_view_type = optional(string, "NEW_AND_OLD_IMAGES")
-    kms_key_id    = optional(string)
-    purpose       = optional(string, "Application Data Storage")
+    enable_stream                 = optional(bool, false)
+    stream_view_type              = optional(string, "NEW_AND_OLD_IMAGES")
+    kms_key_id                    = optional(string)
+    purpose                       = optional(string, "Application Data Storage")
   }))
   default = {}
+}
+
+# Custom Domain Configuration (optional, for API Gateway)
+variable "custom_domain_config" {
+  description = "Custom domain configuration for API Gateway. Leave null to use default endpoint."
+  type = object({
+    certificate_arn = string           # ACM certificate ARN (must be in us-east-1 for API Gateway)
+    domain_name     = string           # Custom domain name (e.g., api.dev.example.com)
+    hosted_zone_id  = optional(string) # Route53 hosted zone ID (optional, creates A record if provided)
+  })
+  default = null
 }
