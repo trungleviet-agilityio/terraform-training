@@ -19,23 +19,34 @@ output "common_tags" {
 }
 
 output "api_gateway_id" {
-  value       = length(module.api_gateway) > 0 ? module.api_gateway[0].api_id : null
-  description = "API Gateway HTTP API ID. Null if not created."
+  value       = module.api_gateway.api_id
+  description = "API Gateway HTTP API ID. [REMOTE STATE] Used by 30_app for API Gateway integration."
 }
 
 output "api_gateway_endpoint" {
-  value       = length(module.api_gateway) > 0 ? module.api_gateway[0].api_endpoint : null
-  description = "API Gateway HTTP endpoint URL. Null if not created."
+  value       = module.api_gateway.api_endpoint
+  description = "API Gateway HTTP endpoint URL."
 }
 
 output "api_gateway_execution_arn" {
-  value       = length(module.api_gateway) > 0 ? module.api_gateway[0].api_execution_arn : null
-  description = "API Gateway execution ARN. Null if not created."
+  value       = module.api_gateway.api_execution_arn
+  description = "API Gateway execution ARN. [REMOTE STATE] Used by 30_app for API Gateway integration."
 }
 
 output "api_gateway_name" {
-  value       = length(module.api_gateway) > 0 ? module.api_gateway[0].api_name : null
-  description = "API Gateway name. Null if not created."
+  value       = module.api_gateway.api_name
+  description = "API Gateway name."
+}
+
+# Custom Domain Outputs
+output "api_gateway_custom_domain_name" {
+  value       = module.api_gateway.custom_domain_name
+  description = "API Gateway custom domain name. Null if custom domain not configured."
+}
+
+output "api_gateway_custom_domain_arn" {
+  value       = module.api_gateway.custom_domain_arn
+  description = "API Gateway custom domain ARN. Null if custom domain not configured."
 }
 
 output "sqs_queue_arn" {
@@ -78,51 +89,13 @@ output "sqs_dlq_alarm_name" {
   description = "Name of the CloudWatch alarm for DLQ messages. Null if alarm disabled."
 }
 
-output "eventbridge_schedule_arn" {
-  value       = length(module.eventbridge_schedule) > 0 ? module.eventbridge_schedule[0].schedule_arn : null
-  description = "ARN of the EventBridge schedule. Null if not created."
-}
-
-output "eventbridge_schedule_name" {
-  value       = length(module.eventbridge_schedule) > 0 ? module.eventbridge_schedule[0].schedule_name : null
-  description = "Name of the EventBridge schedule. Null if not created."
-}
-
-output "eventbridge_schedule_state" {
-  value       = length(module.eventbridge_schedule) > 0 ? module.eventbridge_schedule[0].schedule_state : null
-  description = "State of the EventBridge schedule. Null if not created."
-}
-
-output "eventbridge_iam_role_arn" {
-  value       = length(module.eventbridge_schedule) > 0 ? module.eventbridge_schedule[0].iam_role_arn : null
-  description = "ARN of the IAM role used by EventBridge. Null if not created."
-}
+# EventBridge schedule creation moved to 30_app layer
+# Schedule expression configuration remains in terraform.tfvars
 
 # OIDC Provider Outputs
 output "oidc_provider_arn" {
   value       = length(module.oidc_provider) > 0 ? module.oidc_provider[0].oidc_provider_arn : null
   description = "ARN of the OIDC provider for GitHub Actions. Null if not created."
-}
-
-# GitHub Actions Role Outputs
-output "terraform_plan_role_arn" {
-  value       = length(module.github_actions_roles) > 0 ? module.github_actions_roles[0].terraform_plan_role_arn : null
-  description = "ARN of the Terraform plan role for GitHub Actions. Use this for GitHub Secret AWS_ROLE_ARN in terraform-plan.yml workflow. Null if not created."
-}
-
-output "terraform_apply_role_arn" {
-  value       = length(module.github_actions_roles) > 0 ? module.github_actions_roles[0].terraform_apply_role_arn : null
-  description = "ARN of the Terraform apply role for GitHub Actions. Use this for GitHub Secret AWS_ROLE_ARN in terraform-apply.yml workflow. Null if not created."
-}
-
-output "terraform_plan_role_name" {
-  value       = length(module.github_actions_roles) > 0 ? module.github_actions_roles[0].terraform_plan_role_name : null
-  description = "Name of the Terraform plan role. Null if not created."
-}
-
-output "terraform_apply_role_name" {
-  value       = length(module.github_actions_roles) > 0 ? module.github_actions_roles[0].terraform_apply_role_name : null
-  description = "Name of the Terraform apply role. Null if not created."
 }
 
 # DynamoDB Outputs
@@ -139,4 +112,56 @@ output "dynamodb_table_arns" {
 output "dynamodb_table_stream_arns" {
   value       = length(module.dynamodb) > 0 ? module.dynamodb[0].table_stream_arns : {}
   description = "Map of DynamoDB table stream ARNs (key -> stream ARN, null if stream not enabled). Empty map if no tables configured."
+}
+
+# Lambda Role Outputs
+output "lambda_api_role_arn" {
+  value       = module.iam_roles.lambda_api_role_arn
+  description = "ARN of the IAM role for API Lambda function. [REMOTE STATE] Used by 30_app for Lambda function creation."
+}
+
+output "lambda_api_role_name" {
+  value       = module.iam_roles.lambda_api_role_name
+  description = "Name of the IAM role for API Lambda function."
+}
+
+output "lambda_cron_role_arn" {
+  value       = module.iam_roles.lambda_cron_role_arn
+  description = "ARN of the IAM role for Cron Lambda function. [REMOTE STATE] Used by 30_app for Lambda function creation."
+}
+
+output "lambda_cron_role_name" {
+  value       = module.iam_roles.lambda_cron_role_name
+  description = "Name of the IAM role for Cron Lambda function."
+}
+
+output "lambda_worker_role_arn" {
+  value       = module.iam_roles.lambda_worker_role_arn
+  description = "ARN of the IAM role for Worker Lambda function. [REMOTE STATE] Used by 30_app for Lambda function creation."
+}
+
+output "lambda_worker_role_name" {
+  value       = module.iam_roles.lambda_worker_role_name
+  description = "Name of the IAM role for Worker Lambda function."
+}
+
+# GitHub Actions Role Outputs
+output "terraform_plan_role_arn" {
+  value       = module.iam_roles.terraform_plan_role_arn
+  description = "ARN of the Terraform plan role for GitHub Actions. Use this for GitHub Secret AWS_ROLE_ARN in terraform-plan.yml workflow. Null if not created."
+}
+
+output "terraform_apply_role_arn" {
+  value       = module.iam_roles.terraform_apply_role_arn
+  description = "ARN of the Terraform apply role for GitHub Actions. Use this for GitHub Secret AWS_ROLE_ARN in terraform-apply.yml workflow. Null if not created."
+}
+
+output "terraform_plan_role_name" {
+  value       = module.iam_roles.terraform_plan_role_name
+  description = "Name of the Terraform plan role. Null if not created."
+}
+
+output "terraform_apply_role_name" {
+  value       = module.iam_roles.terraform_apply_role_name
+  description = "Name of the Terraform apply role. Null if not created."
 }
