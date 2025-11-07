@@ -4,5 +4,20 @@ aws_region   = "ap-southeast-1"
 project_name = "tt-practice"
 environment  = "dev"
 
-# Note: All other configuration (log retention, KMS, secrets) is managed
-# by sub-modules using their defaults or removed from practice project.
+# Optional: DNS Configuration (Route53)
+# Leave domain_name empty to skip DNS setup
+# dns_config = {
+#   domain_name = "example.com"  # Creates hosted zone for dev.example.com
+#   # Optional fields (use defaults if not specified):
+#   # api_gateway_endpoint = ""
+#   # api_gateway_zone_id  = ""
+#   # api_subdomain        = "api"
+#   # cname_records        = {}
+#   # a_records            = {}
+# }
+
+# Optional: Certificate Region Configuration
+# Set to true to create ACM certificate in us-east-1 (required for API Gateway custom domains)
+# Set to false (default) to create certificate in default provider region (ap-southeast-1)
+# use_us_east_1_certificate = false
+
