@@ -14,3 +14,13 @@ output "state_backend_dynamodb_table_arn" {
   value       = module.main.state_backend_dynamodb_table_arn
   description = "ARN of the DynamoDB table for Terraform state locking."
 }
+
+output "region" {
+  value       = module.main.region
+  description = "Current AWS region."
+}
+
+output "common_tags" {
+  value       = module.main.common_tags
+  description = "Common tags applied by core layer."
+}
