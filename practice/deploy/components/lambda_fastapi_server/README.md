@@ -26,7 +26,7 @@ module "fastapi_lambda" {
   runtime            = "python3.13"
   memory_size        = 128
   timeout            = 30
-  
+
   tags = local.common_tags
 }
 ```
@@ -51,6 +51,47 @@ module "fastapi_lambda" {
 - `function_arn`: ARN of the Lambda function
 - `function_name`: Name of the Lambda function
 - `invoke_arn`: ARN to be used for invoking Lambda Function from API Gateway
+- `function_url`: Lambda Function URL for direct HTTP access (null if not enabled)
+
+## Lambda Function URL
+
+The component supports Lambda Function URLs for direct HTTP access without API Gateway:
+
+```hcl
+module "fastapi_lambda" {
+  source = "../../../components/lambda_fastapi_server"
+
+  # ... other variables ...
+
+  enable_function_url = true
+  function_url_authorization_type = "NONE"  # or "AWS_IAM"
+
+  function_url_cors = {
+    allow_credentials = false
+    allow_headers     = ["*"]
+    allow_methods     = ["GET", "POST", "PUT", "DELETE"]
+    allow_origins     = ["https://example.com"]
+    expose_headers    = []
+    max_age           = 3600
+  }
+
+  tags = local.common_tags
+}
+```
+
+**Benefits of Lambda Function URL:**
+- Direct HTTP access without API Gateway
+- Lower cost (no API Gateway charges)
+- Simpler setup for internal APIs
+- Suitable for serverless applications that don't need API Gateway features
+
+**Use Cases:**
+- Internal APIs
+- Webhooks
+- Simple REST APIs
+- Development/testing environments
+
+**Note:** For production APIs requiring advanced features (rate limiting, API keys, custom domains), use API Gateway instead.
 
 ## FastAPI Handler Pattern
 
@@ -90,4 +131,3 @@ resource "aws_apigatewayv2_integration" "lambda" {
 - The function depends on the log group being created first
 - For production, consider using Lambda layers for dependencies to reduce package size
 - Memory and timeout should be adjusted based on workload requirements
-

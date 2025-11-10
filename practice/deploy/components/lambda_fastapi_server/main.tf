@@ -36,3 +36,20 @@ resource "aws_lambda_function" "fastapi_server" {
     aws_cloudwatch_log_group.lambda_logs
   ]
 }
+
+# Lambda Function URL (optional)
+resource "aws_lambda_function_url" "this" {
+  count = var.enable_function_url ? 1 : 0
+
+  function_name      = aws_lambda_function.fastapi_server.function_name
+  authorization_type = var.function_url_authorization_type
+
+  cors {
+    allow_credentials = var.function_url_cors.allow_credentials
+    allow_headers    = var.function_url_cors.allow_headers
+    allow_methods    = var.function_url_cors.allow_methods
+    allow_origins    = var.function_url_cors.allow_origins
+    expose_headers   = var.function_url_cors.expose_headers
+    max_age          = var.function_url_cors.max_age
+  }
+}

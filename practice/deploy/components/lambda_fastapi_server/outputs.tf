@@ -12,3 +12,8 @@ output "invoke_arn" {
   value       = aws_lambda_function.fastapi_server.invoke_arn
   description = "ARN to be used for invoking Lambda Function from API Gateway"
 }
+
+output "function_url" {
+  value       = length(aws_lambda_function_url.this) > 0 ? aws_lambda_function_url.this[0].function_url : null
+  description = "Lambda Function URL for direct HTTP access. Null if function URL not enabled."
+}
