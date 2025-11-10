@@ -65,14 +65,15 @@ deploy/
 The application layer uses a modular component-based architecture:
 
 **Components** (`deploy/components/`):
-- `lambda_simple_package`: Packages Lambda source code into zip files
-- `lambda_fastapi_server`: FastAPI Lambda wrapper component
-- `lambda_cron_server`: Cron Lambda wrapper component
-- `lambda_sqs_worker`: SQS worker Lambda wrapper component
+- `lambda_simple_package`: Packages Lambda source code into zip files (supports hybrid packaging: archive_file or pre-built zip)
+- `lambda_fastapi_server`: FastAPI Lambda wrapper component with optional Function URL support
+- `lambda_cron_server`: Cron Lambda wrapper component for EventBridge schedules
+- `lambda_sqs_worker`: SQS worker Lambda wrapper component with event source mapping
+- `api_gateway_integration`: API Gateway integration component (creates integration, route, and Lambda permission)
+- `eventbridge_target`: EventBridge schedule component (creates schedule with Lambda target and IAM role)
 
 **Modules** (`deploy/30_app/modules/`):
 - `runtime_code_modules`: Packages all Lambda source code
-- `lambda_roles`: Creates IAM execution roles for Lambda functions
 - `api_server`: API Lambda module
 - `cron_server`: Cron Lambda module
 - `worker`: Worker Lambda module
@@ -317,9 +318,9 @@ Use the validation script to check output consistency:
 ```
 
 The script ensures:
-- ✅ Environment outputs reference `module.main.*`
-- ✅ Referenced main outputs exist
-- ✅ Outputs are properly mapped
+- Environment outputs reference `module.main.*`
+- Referenced main outputs exist
+- Outputs are properly mapped
 
 **See**: 
 - `shared/docs/terraform-state-and-backend.md` - Detailed explanation of output structure
@@ -522,11 +523,68 @@ Secrets follow a layered approach:
 Components are reusable building blocks located in `deploy/components/`:
 
 - **`lambda_simple_package`**: Packages Lambda source code into zip files (supports hybrid packaging: archive_file or pre-built zip)
-- **`lambda_fastapi_server`**: Creates FastAPI Lambda function
-- **`lambda_cron_server`**: Creates cron Lambda function
+- **`lambda_fastapi_server`**: Creates FastAPI Lambda function with optional Function URL support
+- **`lambda_cron_server`**: Creates cron Lambda function for EventBridge schedules
 - **`lambda_sqs_worker`**: Creates SQS worker Lambda with event source mapping
+- **`api_gateway_integration`**: Creates API Gateway integration, route, and Lambda permission
+- **`eventbridge_target`**: Creates EventBridge schedule with Lambda target and IAM role
+
+**Component Design Principle**: Each component follows a single-responsibility principle - one component = one Lambda pattern or packaging mechanism.
 
 Each component has a README.md file with detailed usage examples and variable descriptions.
+
+### Component Architecture Diagram
+
+```
+Component Architecture:
+┌──────────────────────────────────────────────────────────┐
+│ Components (deploy/components/)                          │
+├──────────────────────────────────────────────────────────┤
+│ lambda_simple_package                                    │
+│   └─ Packages source code → zip files                    │
+│      (supports hybrid: archive_file or pre-built zip)    │
+│                                                          │
+│ lambda_fastapi_server                                    │
+│   └─ Creates FastAPI Lambda + Function URL (optional)    │
+│                                                          │
+│ lambda_cron_server                                       │
+│   └─ Creates cron Lambda for EventBridge                 │
+│                                                          │
+│ lambda_sqs_worker                                        │
+│   └─ Creates SQS worker Lambda + event source mapping    │
+│                                                          │
+│ api_gateway_integration                                  │
+│   └─ Creates API Gateway integration + route + permission│
+│                                                          │
+│ eventbridge_target                                       │
+│   └─ Creates EventBridge schedule + IAM role + target    │
+└──────────────────────────────────────────────────────────┘
+                          ↓ used by
+┌─────────────────────────────────────────────────────────┐
+│ Modules (deploy/30_app/modules/)                        │
+├─────────────────────────────────────────────────────────┤
+│ runtime_code_modules                                    │
+│   └─ Uses: lambda_simple_package (×3)                   │
+│      (packages api_server, cron_server, worker)         │
+│                                                         │
+│ api_server                                              │
+│   └─ Uses: lambda_fastapi_server                        │
+│                                                         │
+│ cron_server                                             │
+│   └─ Uses: lambda_cron_server                           │
+│                                                         │
+│ worker                                                  │
+│   └─ Uses: lambda_sqs_worker                            │
+└─────────────────────────────────────────────────────────┘
+                          ↓ used by
+┌─────────────────────────────────────────────────────────┐
+│ Main Module (deploy/30_app/main/)                       │
+├─────────────────────────────────────────────────────────┤
+│ Uses integration components:                            │
+│   ├─ api_gateway_integration                            │
+│   └─ eventbridge_target                                 │
+└─────────────────────────────────────────────────────────┘
+```
 
 ### Hybrid Packaging Approach
 
@@ -549,20 +607,38 @@ The `lambda_simple_package` component supports a **hybrid packaging workflow**:
 Modules in `deploy/30_app/modules/` orchestrate components:
 
 - **`runtime_code_modules`**: Packages all Lambda source code using `lambda_simple_package` component
-- **`lambda_roles`**: Creates IAM execution roles for all Lambda functions
 - **`api_server`**: Creates API Lambda using `lambda_fastapi_server` component
 - **`cron_server`**: Creates cron Lambda using `lambda_cron_server` component
 - **`worker`**: Creates worker Lambda using `lambda_sqs_worker` component
+
+**Note**: IAM roles and policies for Lambda functions are created in the `20_infra` layer (`deploy/20_infra/modules/policies` and `deploy/20_infra/modules/roles`) and consumed via remote state.
 
 ### Lambda Deployment Flow
 
 ```
 src/lambda/
-  ↓ (runtime_code_modules packages source code)
-out/
-  ↓ (api_server/cron_server/worker modules use components)
-Lambda Functions
-  ↓ (outputs ARNs for integration)
+    ↓
+runtime_code_modules (uses lambda_simple_package component × 3)
+    ↓ (outputs package info: zip_path, zip_hash)
+20_infra layer
+    ├─ Creates: DynamoDB tables, SQS queues
+    ├─ Creates: Lambda policies (references DynamoDB/SQS)
+    ├─ Creates: Lambda roles (attaches policies)
+    └─ Outputs: Role ARNs for 30_app consumption
+    ↓ (via remote state)
+30_app layer (consumes role ARNs)
+    ↓
+api_server/cron_server/worker modules
+    ├─ api_server → uses lambda_fastapi_server component
+    ├─ cron_server → uses lambda_cron_server component
+    └─ worker → uses lambda_sqs_worker component
+    ↓
+Lambda Functions created (using roles from 20_infra)
+    ↓
+Integration components (in 30_app/main)
+    ├─ api_gateway_integration → connects API Gateway to API Lambda
+    └─ eventbridge_target → creates EventBridge schedule with cron Lambda target
+    ↓ (outputs ARNs for integration)
 20_infra layer (API Gateway, EventBridge)
 ```
 
