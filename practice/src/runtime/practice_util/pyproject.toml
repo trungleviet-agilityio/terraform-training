@@ -1,11 +1,11 @@
 [project]
-name = "cron-server"
+name = "practice-util"
 version = "0.1.0"
-description = "Cron Server Lambda function for scheduled tasks"
+description = "Shared utility functions for practice Lambda functions"
 requires-python = ">=3.13"
 
 dependencies = [
-    "practice-util",
+    "boto3>=1.34.0",
 ]
 
 [build-system]

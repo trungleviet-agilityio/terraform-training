@@ -7,8 +7,9 @@ variable "package" {
   type = object({
     zip_path = string
     zip_hash = string
+    lambda_layer_arn = optional(string)
   })
-  description = "Package information containing zip_path and zip_hash"
+  description = "Package information containing zip_path, zip_hash, and optional lambda_layer_arn"
 }
 
 variable "execution_role_arn" {

@@ -4,7 +4,7 @@ This module packages all Lambda source code directories into zip files for deplo
 
 ## Purpose
 
-Packages Lambda source code from `src/lambda/` into deployment-ready zip files. Uses the `lambda_simple_package` component to package each Lambda function (api_server, cron_server, worker).
+Packages Lambda source code and runtime modules into deployment-ready zip files with Lambda layers. Uses the `lambda_python_module` component to package each Lambda function (api_server, cron_server, worker) and runtime modules (practice_util).
 
 ## Resources
 

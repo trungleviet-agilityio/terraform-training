@@ -53,7 +53,7 @@ Application workloads and compute resources:
 The application layer follows a modular architecture with reusable components:
 
 **Components** (`deploy/components/`):
-- `lambda_simple_package`: Packages Lambda source code into zip files (supports hybrid packaging: archive_file or pre-built zip)
+- `lambda_python_module`: Packages Python Lambda modules into Lambda layers and application zip files (creates layers for dependencies, separates code from dependencies)
 - `lambda_fastapi_server`: FastAPI Lambda wrapper component with optional Function URL support
 - `lambda_cron_server`: Cron Lambda wrapper component for EventBridge schedules
 - `lambda_sqs_worker`: SQS worker Lambda wrapper component with event source mapping
@@ -61,7 +61,7 @@ The application layer follows a modular architecture with reusable components:
 - `eventbridge_target`: EventBridge schedule component (creates schedule with Lambda target and IAM role)
 
 **Modules** (`deploy/30_app/modules/`):
-- `runtime_code_modules`: Packages all Lambda source code
+- `runtime_code_modules`: Packages all Lambda source code and runtime modules using `lambda_python_module` component
 - `api_server`: API Lambda module (uses `lambda_fastapi_server` component)
 - `cron_server`: Cron Lambda module (uses `lambda_cron_server` component)
 - `worker`: Worker Lambda module (uses `lambda_sqs_worker` component)
@@ -86,20 +86,22 @@ The application layer follows a modular architecture with reusable components:
 
 **Component Usage Flow**:
 ```
-src/lambda/
-    ↓
-runtime_code_modules (uses lambda_simple_package component × 3)
-    ↓ (outputs package info: zip_path, zip_hash)
+src/runtime/          src/lambda/
+    ↓                      ↓
+practice_util         api_server, worker, cron_server
+    ↓                      ↓
+runtime_code_modules (uses lambda_python_module component)
+    ↓ (outputs layer ARNs, app zip paths, signatures.json)
 20_infra layer (creates IAM roles and policies)
     ↓ (outputs role ARNs via remote state)
 30_app layer (consumes role ARNs)
     ↓
 api_server/cron_server/worker modules
-    ├─ api_server → uses lambda_fastapi_server component
-    ├─ cron_server → uses lambda_cron_server component
-    └─ worker → uses lambda_sqs_worker component
+    ├─ api_server → uses lambda_fastapi_server component + practice_util layer
+    ├─ cron_server → uses lambda_cron_server component + practice_util layer
+    └─ worker → uses lambda_sqs_worker component + practice_util layer
     ↓
-Lambda Functions created (using roles from 20_infra)
+Lambda Functions created (using roles from 20_infra, layers from runtime_code_modules)
     ↓
 Integration components (in 30_app/main)
     ├─ api_gateway_integration → connects API Gateway to API Lambda
@@ -114,7 +116,7 @@ See individual module README files for detailed usage examples.
 - Reusable, single-purpose building blocks that create AWS resources
 - Low-level abstractions that encapsulate specific Lambda patterns
 - Shared across the entire project
-- Examples: `lambda_simple_package`, `lambda_fastapi_server`, `lambda_cron_server`, `lambda_sqs_worker`, `api_gateway_integration`, `eventbridge_target`
+- Examples: `lambda_python_module`, `lambda_fastapi_server`, `lambda_cron_server`, `lambda_sqs_worker`, `api_gateway_integration`, `eventbridge_target`
 
 **Modules** (`deploy/30_app/modules/`):
 - Orchestrate components to provide higher-level abstractions
@@ -126,17 +128,28 @@ See individual module README files for detailed usage examples.
 
 ### Component Usage Examples
 
-**Example 1: runtime_code_modules uses lambda_simple_package**
+**Example 1: runtime_code_modules uses lambda_python_module**
 
-The `runtime_code_modules` module uses the `lambda_simple_package` component three times to package all Lambda source code:
+The `runtime_code_modules` module uses the `lambda_python_module` component to package runtime modules and Lambda functions with layer support:
 
 ```hcl
 # In runtime_code_modules/main.tf
+# Package practice_util runtime module (creates Lambda layer)
+module "practice_util" {
+  source = "../../../components/lambda_python_module"
+  package_root   = "${path.root}/../../../../src/runtime/practice_util"
+  package_name   = "practice_util"
+  python_version = "3.13"
+  use_s3         = false
+}
+
+# Package API Server Lambda code (uses practice_util layer)
 module "api_server_package" {
-  source = "../../../components/lambda_simple_package"
-  source_path = "${var.source_base_path}/api_server"
-  server_name = "api_server"
-  output_dir  = var.output_dir
+  source = "../../../components/lambda_python_module"
+  package_root   = "${path.root}/../../../../src/lambda/api_server"
+  package_name   = "api_server"
+  python_version = "3.13"
+  use_s3         = false
 }
 ```
 
@@ -179,9 +192,9 @@ Component Architecture:
 ┌──────────────────────────────────────────────────────────┐
 │ Components (deploy/components/)                          │
 ├──────────────────────────────────────────────────────────┤
-│ lambda_simple_package                                    │
-│   └─ Packages source code → zip files                    │
-│      (supports hybrid: archive_file or pre-built zip)    │
+│ lambda_python_module                                     │
+│   └─ Packages Python modules → Lambda layers + app zips  │
+│      (creates layers for dependencies, separates code)   │
 │                                                          │
 │ lambda_fastapi_server                                    │
 │   └─ Creates FastAPI Lambda + Function URL (optional)    │
@@ -199,21 +212,21 @@ Component Architecture:
 │   └─ Creates EventBridge schedule + IAM role + target    │
 └──────────────────────────────────────────────────────────┘
                           ↓ used by
-┌─────────────────────────────────────────────────────────┐
-│ Modules (deploy/30_app/modules/)                        │
-├─────────────────────────────────────────────────────────┤
-│ runtime_code_modules                                    │
-│   └─ Uses: lambda_simple_package (×3)                   │
-│      (packages api_server, cron_server, worker)         │
+┌───────────────────────────────────────────────────────────────┐
+│ Modules (deploy/30_app/modules/)                              │
+├───────────────────────────────────────────────────────────────┤
+│ runtime_code_modules                                          │
+│   └─ Uses: lambda_python_module (×4)                    │
+│      (packages practice_util, api_server, cron_server, worker)│
 │                                                         │
 │ api_server                                              │
-│   └─ Uses: lambda_fastapi_server                        │
+│   └─ Uses: lambda_fastapi_server + practice_util layer │
 │                                                         │
 │ cron_server                                             │
-│   └─ Uses: lambda_cron_server                           │
+│   └─ Uses: lambda_cron_server + practice_util layer   │
 │                                                         │
 │ worker                                                  │
-│   └─ Uses: lambda_sqs_worker                            │
+│   └─ Uses: lambda_sqs_worker + practice_util layer     │
 └─────────────────────────────────────────────────────────┘
                           ↓ used by
 ┌─────────────────────────────────────────────────────────┐

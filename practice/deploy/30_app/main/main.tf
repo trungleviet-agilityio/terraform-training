@@ -25,6 +25,10 @@ module "api_server" {
   memory_size           = 128
   timeout               = 30
   environment_variables = local.lambda_environment_variables
+  layers                = compact([
+    module.runtime_code_modules.practice_util.lambda_layer_arn,
+    try(module.runtime_code_modules.api_server.lambda_layer_arn, null)
+  ])
   tags                  = local.common_tags
 }
 
@@ -41,6 +45,10 @@ module "cron_server" {
   memory_size           = 128
   timeout               = 60
   environment_variables = local.lambda_environment_variables
+  layers                = compact([
+    module.runtime_code_modules.practice_util.lambda_layer_arn,
+    try(module.runtime_code_modules.cron_server.lambda_layer_arn, null)
+  ])
   tags                  = local.common_tags
 }
 
@@ -58,6 +66,10 @@ module "worker" {
   memory_size           = 128
   timeout               = 60
   environment_variables = local.lambda_environment_variables
+  layers                = compact([
+    module.runtime_code_modules.practice_util.lambda_layer_arn,
+    try(module.runtime_code_modules.worker.lambda_layer_arn, null)
+  ])
   tags                  = local.common_tags
 }
 
