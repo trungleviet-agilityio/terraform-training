@@ -5,7 +5,7 @@ description = "API Server Lambda function"
 requires-python = ">=3.13"
 
 dependencies = [
-    "boto3>=1.34.0",
+    "practice-util",
     # Uncomment when ready to use FastAPI:
     # "fastapi>=0.109.0",
     # "mangum>=0.17.0",

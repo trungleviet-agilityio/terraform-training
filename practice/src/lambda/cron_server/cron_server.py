@@ -3,6 +3,12 @@ Cron Server Lambda Handler
 Scheduled tasks via EventBridge
 """
 import json
+import time
+from practice_util.dynamodb_client import get_dynamodb_client, get_events_table_name
+
+# Initialize DynamoDB client
+dynamodb = get_dynamodb_client()
+
 
 def lambda_handler(event, context):
     """
@@ -14,34 +20,49 @@ def lambda_handler(event, context):
     """
     print(f"Received EventBridge event: {json.dumps(event)}")
 
-    # TODO:  Send message to SQS, update database, etc.
-    # TODO:  Implement scheduled task logic here
+    try:
+        # Get events table name
+        table_name = get_events_table_name()
 
-    # TODO: Example DynamoDB operations (uncomment when ready)
-    # # Example: Write scheduled event to DynamoDB
-    # # events_table.put_item(
-    # #     Item={
-    # #         'event_type': 'scheduled_task',
-    # #         'timestamp': int(context.aws_request_id[-10:]),  # Use request ID as timestamp
-    # #         'task_name': 'daily_cleanup',
-    # #         'ttl': int(time.time()) + 86400  # TTL: 24 hours from now
-    # #     }
-    # # )
+        # Generate timestamp (use current time)
+        current_timestamp = int(time.time())
 
-    # TODO: Example: Query DynamoDB for recent events
-    # # response = events_table.query(
-    # #     KeyConditionExpression='event_type = :event_type AND #ts > :timestamp',
-    # #     ExpressionAttributeNames={'#ts': 'timestamp'},
-    # #     ExpressionAttributeValues={
-    # #         ':event_type': 'scheduled_task',
-    # #         ':timestamp': int(time.time()) - 3600  # Last hour
-    # #     }
-    # # )
+        # Write scheduled event to DynamoDB events table
+        item = {
+            'event_type': {'S': 'scheduled_task'},
+            'timestamp': {'N': str(current_timestamp)},
+            'task_name': {'S': 'daily_cleanup'},
+            'source': {'S': 'EventBridge'},
+            'request_id': {'S': context.aws_request_id},
+            'ttl': {'N': str(current_timestamp + 86400)}  # TTL: 24 hours from now
+        }
 
-    return {
-        "statusCode": 200,
-        "body": json.dumps({
-            "message": "Cron job executed successfully",
-            "timestamp": context.aws_request_id
-        })
-    }
+        # Add event data if present
+        if event:
+            item['event_data'] = {'S': json.dumps(event)}
+
+        dynamodb.put_item(
+            TableName=table_name,
+            Item=item
+        )
+
+        print(f"Successfully wrote scheduled event to DynamoDB: {current_timestamp}")
+
+        return {
+            "statusCode": 200,
+            "body": json.dumps({
+                "message": "Cron job executed successfully",
+                "timestamp": current_timestamp,
+                "request_id": context.aws_request_id
+            })
+        }
+    except Exception as e:
+        print(f"Error executing cron job: {str(e)}")
+        return {
+            "statusCode": 500,
+            "body": json.dumps({
+                "error": str(e),
+                "message": "Cron job execution failed",
+                "request_id": context.aws_request_id
+            })
+        }
