@@ -8,4 +8,11 @@ locals {
     Environment = var.environment
     ManagedBy   = "Terraform"
   }
+
+  # DynamoDB table names from environment variables
+  # Map table keys to environment variable names
+  lambda_environment_variables = {
+    USER_DATA_TABLE_NAME = try(var.dynamodb_table_names["user-data"], "")
+    EVENTS_TABLE_NAME    = try(var.dynamodb_table_names["events"], "")
+  }
 }

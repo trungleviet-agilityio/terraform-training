@@ -27,14 +27,14 @@ variable "tables" {
     billing_mode = optional(string, "PAY_PER_REQUEST")
 
     # Optional: Enable TTL (for time-series tables)
-    enable_ttl = optional(bool, false)
+    enable_ttl    = optional(bool, false)
     ttl_attribute = optional(string, "ttl")
 
     # Optional: Enable point-in-time recovery
     enable_point_in_time_recovery = optional(bool, false)
 
     # Optional: Enable DynamoDB Streams
-    enable_stream = optional(bool, false)
+    enable_stream    = optional(bool, false)
     stream_view_type = optional(string, "NEW_AND_OLD_IMAGES")
 
     # Optional: KMS key ID for encryption (uses default AWS managed key if null)
