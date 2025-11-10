@@ -157,7 +157,7 @@ tables = {
     type          = "key-value"
     enable_point_in_time_recovery = true
   }
-  
+
   "events" = {
     partition_key = "event_type"
     sort_key      = "timestamp"
@@ -169,7 +169,7 @@ tables = {
     enable_ttl = true
     ttl_attribute = "ttl"
   }
-  
+
   "sessions" = {
     partition_key = "session_id"
     type          = "key-value"

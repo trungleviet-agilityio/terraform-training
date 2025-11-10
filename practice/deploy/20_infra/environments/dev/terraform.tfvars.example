@@ -29,24 +29,26 @@ github_oidc_config = {
 # See shared/docs/terraform-state-and-backend.md for detailed information about remote state usage.
 
 # Optional: Lambda Integration (from 30_app layer)
-# Uncomment and set these after Lambda functions are created in 30_app layer
+# ==================================================
+# These variables are OPTIONAL - Lambda ARNs are automatically retrieved from 30_app remote state
+# when available. Only set these if you want to manually override or if 30_app layer is not yet deployed.
+#
 # api_lambda_function_arn  = "arn:aws:lambda:ap-southeast-1:123456789012:function:my-api-function"
 # api_lambda_function_name = "my-api-function"
-
-# Optional: EventBridge Schedule Configuration
-# Uncomment and set these after Lambda function is created in 30_app layer
-# eventbridge_schedule_expression  = "cron(0 12 * * ? *)"  # Daily at 12:00 PM UTC
+#
 # eventbridge_lambda_function_arn  = "arn:aws:lambda:ap-southeast-1:123456789012:function:my-producer-function"
 # eventbridge_lambda_function_name = "my-producer-function"
+# eventbridge_schedule_expression   = "cron(0 12 * * ? *)"  # Daily at 12:00 PM UTC
 
 # Note: The following configurations use sub-module defaults and don't need to be specified:
 # - SQS queue_name = "main" (module default)
 # - SQS enable_dlq = true (module default)
 # - EventBridge schedule_name = "producer" (module default)
 # - SQS is always created for practice project
-# - API Gateway and EventBridge are only created when Lambda ARNs are provided
+# - API Gateway and EventBridge are only created when Lambda ARNs are provided (from 30_app or manual override)
 
 # Optional: DynamoDB Tables Configuration
+# ========================================
 # Uncomment and configure tables as needed for your application
 # See modules/dynamodb/README.md for detailed configuration options
 #
