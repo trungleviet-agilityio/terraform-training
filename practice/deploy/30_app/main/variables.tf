@@ -31,11 +31,48 @@ variable "deploy_mode" {
 
 variable "sqs_queue_arn" {
   type        = string
-  description = "ARN of the SQS queue from 20_infra layer"
+  description = "ARN of the SQS queue from 20_infra layer (for worker Lambda event source mapping)"
 }
 
-variable "dynamodb_table_arns" {
-  type        = list(string)
-  description = "List of DynamoDB table ARNs from 20_infra layer"
-  default     = []
+# Lambda Role ARNs (from 20_infra layer)
+variable "lambda_api_role_arn" {
+  type        = string
+  description = "ARN of the IAM role for API Lambda function from 20_infra layer"
+}
+
+variable "lambda_cron_role_arn" {
+  type        = string
+  description = "ARN of the IAM role for Cron Lambda function from 20_infra layer"
+}
+
+variable "lambda_worker_role_arn" {
+  type        = string
+  description = "ARN of the IAM role for Worker Lambda function from 20_infra layer"
+}
+
+# API Gateway Integration Variables (from 20_infra layer)
+variable "api_gateway_id" {
+  type        = string
+  description = "API Gateway HTTP API ID from 20_infra layer"
+  default     = ""
+}
+
+variable "api_gateway_execution_arn" {
+  type        = string
+  description = "API Gateway execution ARN from 20_infra layer"
+  default     = ""
+}
+
+# EventBridge Integration Variables
+variable "eventbridge_schedule_expression" {
+  type        = string
+  description = "EventBridge schedule expression (cron or rate). Configure in terraform.tfvars."
+  default     = ""
+}
+
+# DynamoDB Table Names (from 20_infra layer)
+variable "dynamodb_table_names" {
+  type        = map(string)
+  description = "Map of DynamoDB table names (key -> table name) from 20_infra layer. Used to set Lambda environment variables."
+  default     = {}
 }

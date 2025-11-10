@@ -65,3 +65,41 @@ variable "tags" {
   description = "Tags to apply to the Lambda function"
   default     = {}
 }
+
+# Lambda Function URL Configuration
+variable "enable_function_url" {
+  type        = bool
+  description = "Enable Lambda Function URL for direct HTTP access"
+  default     = false
+}
+
+variable "function_url_authorization_type" {
+  type        = string
+  description = "Authorization type for Lambda Function URL: AWS_IAM or NONE"
+  default     = "NONE"
+
+  validation {
+    condition     = contains(["AWS_IAM", "NONE"], var.function_url_authorization_type)
+    error_message = "function_url_authorization_type must be either AWS_IAM or NONE."
+  }
+}
+
+variable "function_url_cors" {
+  type = object({
+    allow_credentials = optional(bool, false)
+    allow_headers     = optional(list(string), ["*"])
+    allow_methods     = optional(list(string), ["*"])
+    allow_origins     = optional(list(string), ["*"])
+    expose_headers    = optional(list(string), [])
+    max_age           = optional(number, 0)
+  })
+  description = "CORS configuration for Lambda Function URL"
+  default = {
+    allow_credentials = false
+    allow_headers     = ["*"]
+    allow_methods     = ["*"]
+    allow_origins     = ["*"]
+    expose_headers    = []
+    max_age           = 0
+  }
+}

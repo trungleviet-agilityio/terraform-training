@@ -1,8 +1,4 @@
 # Variables for the dev environment
-# ============================================
-# ROOT MODULE VARIABLES
-# These variables are passed to the main module
-# ============================================
 
 variable "aws_region" {
   description = "The AWS region to deploy resources to"
@@ -46,5 +42,16 @@ variable "deploy_mode" {
   validation {
     condition     = contains(["zip", "container"], var.deploy_mode)
     error_message = "deploy_mode must be either 'zip' or 'container'."
+  }
+}
+
+variable "eventbridge_schedule_expression" {
+  description = "Schedule expression (cron or rate) for EventBridge. Example: 'cron(0 12 * * ? *)' or 'rate(5 minutes)'. Leave empty to skip EventBridge schedule creation."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.eventbridge_schedule_expression == "" || can(regex("^(cron|rate)\\(.*\\)$", var.eventbridge_schedule_expression))
+    error_message = "eventbridge_schedule_expression must be empty string or a valid cron/rate expression."
   }
 }

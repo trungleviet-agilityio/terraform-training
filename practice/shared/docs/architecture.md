@@ -15,46 +15,58 @@ Shared foundation resources:
 - Base IAM roles and policies
 - CloudWatch log retention settings
 - AWS account/region data sources
+- **Route53 DNS** (optional): Hosted zone and ACM certificate for custom domains
 
 **Deployment Order**: Must be deployed **first** before other layers.
 
 ### 20_infra - Platform Services Layer
 Platform services that applications depend on:
 - API Gateway HTTP API
+  - Optional custom domain with Route53 integration
+  - Automatic DNS record creation when DNS module is configured
 - SQS queues (standard + DLQ)
 - EventBridge schedules
+- DynamoDB tables (shared application data)
+- **IAM Roles and Policies** for Lambda functions
+  - Lambda execution roles (API, Cron, Worker)
+  - DynamoDB access policies
+  - SQS access policies
 
-**Dependencies**: Requires `10_core` outputs (tags, account ID, region).
+**Dependencies**: Requires `10_core` outputs (tags, account ID, region, DNS certificate ARN if custom domain enabled).
 
-**Remote State Usage**: Uses `terraform_remote_state` to automatically retrieve backend configuration from `10_core` layer. See `deploy/20_infra/environments/dev/main.tf` for implementation.
+**Remote State Usage**: Uses `terraform_remote_state` to automatically retrieve backend configuration from `10_core` layer and DNS certificate for custom domain setup. See `deploy/20_infra/environments/dev/main.tf` for implementation.
+
+**Outputs**: Exposes Lambda role ARNs for `30_app` layer consumption via remote state.
 
 ### 30_app - Application Layer
 Application workloads and compute resources:
 - Lambda functions (FastAPI API, SQS worker, cron producer)
 - Event source mappings and triggers
-- Function-specific IAM roles
 - Lambda layers (for zip deployment mode)
 
-**Dependencies**: Requires `10_core` and `20_infra` outputs.
+**Dependencies**: Requires `10_core` and `20_infra` outputs (including Lambda role ARNs).
 
-**Remote State Usage**: Uses `terraform_remote_state` to automatically retrieve SQS queue ARN from `20_infra` layer. See `deploy/30_app/environments/dev/main.tf` for implementation.
+**Remote State Usage**: Uses `terraform_remote_state` to automatically retrieve SQS queue ARN and Lambda role ARNs from `20_infra` layer. See `deploy/30_app/environments/dev/main.tf` for implementation.
 
 #### Lambda Module Structure
 
 The application layer follows a modular architecture with reusable components:
 
 **Components** (`deploy/components/`):
-- `lambda_simple_package`: Packages Lambda source code into zip files
-- `lambda_fastapi_server`: FastAPI Lambda wrapper component
-- `lambda_cron_server`: Cron Lambda wrapper component
-- `lambda_sqs_worker`: SQS worker Lambda wrapper component
+- `lambda_simple_package`: Packages Lambda source code into zip files (supports hybrid packaging: archive_file or pre-built zip)
+- `lambda_fastapi_server`: FastAPI Lambda wrapper component with optional Function URL support
+- `lambda_cron_server`: Cron Lambda wrapper component for EventBridge schedules
+- `lambda_sqs_worker`: SQS worker Lambda wrapper component with event source mapping
+- `api_gateway_integration`: API Gateway integration component (creates integration, route, and Lambda permission)
+- `eventbridge_target`: EventBridge schedule component (creates schedule with Lambda target and IAM role)
 
 **Modules** (`deploy/30_app/modules/`):
 - `runtime_code_modules`: Packages all Lambda source code
-- `lambda_roles`: Creates IAM execution roles for Lambda functions
 - `api_server`: API Lambda module (uses `lambda_fastapi_server` component)
 - `cron_server`: Cron Lambda module (uses `lambda_cron_server` component)
 - `worker`: Worker Lambda module (uses `lambda_sqs_worker` component)
+
+**Note**: IAM roles for Lambda functions are created in the `20_infra` layer and consumed via remote state.
 
 **Lambda Functions**:
 1. **API Server** (`api_server`): FastAPI application for HTTP API requests
@@ -74,25 +86,155 @@ The application layer follows a modular architecture with reusable components:
 
 **Component Usage Flow**:
 ```
-runtime_code_modules (packages source code)
+src/lambda/
     ↓
-lambda_roles (creates IAM roles)
+runtime_code_modules (uses lambda_simple_package component × 3)
+    ↓ (outputs package info: zip_path, zip_hash)
+20_infra layer (creates IAM roles and policies)
+    ↓ (outputs role ARNs via remote state)
+30_app layer (consumes role ARNs)
     ↓
-api_server/cron_server/worker modules (use components)
+api_server/cron_server/worker modules
+    ├─ api_server → uses lambda_fastapi_server component
+    ├─ cron_server → uses lambda_cron_server component
+    └─ worker → uses lambda_sqs_worker component
     ↓
-Lambda functions created
+Lambda Functions created (using roles from 20_infra)
+    ↓
+Integration components (in 30_app/main)
+    ├─ api_gateway_integration → connects API Gateway to API Lambda
+    └─ eventbridge_target → creates EventBridge schedule with cron Lambda target
 ```
 
 See individual module README files for detailed usage examples.
 
-## Component Architecture
+### Component vs Module Distinction
+
+**Components** (`deploy/components/`):
+- Reusable, single-purpose building blocks that create AWS resources
+- Low-level abstractions that encapsulate specific Lambda patterns
+- Shared across the entire project
+- Examples: `lambda_simple_package`, `lambda_fastapi_server`, `lambda_cron_server`, `lambda_sqs_worker`, `api_gateway_integration`, `eventbridge_target`
+
+**Modules** (`deploy/30_app/modules/`):
+- Orchestrate components to provide higher-level abstractions
+- Specific to the application layer (`30_app`)
+- Combine multiple components and resources to create complete Lambda functions
+- Examples: `runtime_code_modules`, `api_server`, `cron_server`, `worker`
+
+**Component Design Principle**: Each component follows a single-responsibility principle - one component = one Lambda pattern or packaging mechanism.
+
+### Component Usage Examples
+
+**Example 1: runtime_code_modules uses lambda_simple_package**
+
+The `runtime_code_modules` module uses the `lambda_simple_package` component three times to package all Lambda source code:
+
+```hcl
+# In runtime_code_modules/main.tf
+module "api_server_package" {
+  source = "../../../components/lambda_simple_package"
+  source_path = "${var.source_base_path}/api_server"
+  server_name = "api_server"
+  output_dir  = var.output_dir
+}
+```
+
+**Example 2: api_server module uses lambda_fastapi_server**
+
+The `api_server` module uses the `lambda_fastapi_server` component to create the FastAPI Lambda function:
+
+```hcl
+# In api_server/main.tf
+module "lambda_fastapi_server" {
+  source = "../../../components/lambda_fastapi_server"
+  function_name      = var.function_name
+  package_zip_path   = var.package.zip_path
+  package_zip_hash   = var.package.zip_hash
+  execution_role_arn = var.execution_role_arn
+  # ... other configuration
+}
+```
+
+**Example 3: worker module uses lambda_sqs_worker**
+
+The `worker` module uses the `lambda_sqs_worker` component to create the SQS worker Lambda with automatic event source mapping:
+
+```hcl
+# In worker/main.tf
+module "lambda_sqs_worker" {
+  source = "../../../components/lambda_sqs_worker"
+  function_name      = var.function_name
+  package_zip_path   = var.package.zip_path
+  sqs_queue_arn      = var.sqs_queue_arn
+  execution_role_arn = var.execution_role_arn
+  # ... other configuration
+}
+```
+
+### Component Architecture Diagram
+
+```
+Component Architecture:
+┌──────────────────────────────────────────────────────────┐
+│ Components (deploy/components/)                          │
+├──────────────────────────────────────────────────────────┤
+│ lambda_simple_package                                    │
+│   └─ Packages source code → zip files                    │
+│      (supports hybrid: archive_file or pre-built zip)    │
+│                                                          │
+│ lambda_fastapi_server                                    │
+│   └─ Creates FastAPI Lambda + Function URL (optional)    │
+│                                                          │
+│ lambda_cron_server                                       │
+│   └─ Creates cron Lambda for EventBridge                 │
+│                                                          │
+│ lambda_sqs_worker                                        │
+│   └─ Creates SQS worker Lambda + event source mapping    │
+│                                                          │
+│ api_gateway_integration                                  │
+│   └─ Creates API Gateway integration + route + permission│
+│                                                          │
+│ eventbridge_target                                       │
+│   └─ Creates EventBridge schedule + IAM role + target    │
+└──────────────────────────────────────────────────────────┘
+                          ↓ used by
+┌─────────────────────────────────────────────────────────┐
+│ Modules (deploy/30_app/modules/)                        │
+├─────────────────────────────────────────────────────────┤
+│ runtime_code_modules                                    │
+│   └─ Uses: lambda_simple_package (×3)                   │
+│      (packages api_server, cron_server, worker)         │
+│                                                         │
+│ api_server                                              │
+│   └─ Uses: lambda_fastapi_server                        │
+│                                                         │
+│ cron_server                                             │
+│   └─ Uses: lambda_cron_server                           │
+│                                                         │
+│ worker                                                  │
+│   └─ Uses: lambda_sqs_worker                            │
+└─────────────────────────────────────────────────────────┘
+                          ↓ used by
+┌─────────────────────────────────────────────────────────┐
+│ Main Module (deploy/30_app/main/)                       │
+├─────────────────────────────────────────────────────────┤
+│ Uses integration components:                            │
+│   ├─ api_gateway_integration                            │
+│   └─ eventbridge_target                                 │
+└─────────────────────────────────────────────────────────┘
+```
 
 ### Request Flow
 
 ```
 User
   ↓
+Route53 DNS (optional, for custom domain)
+  ↓
 API Gateway (HTTP API)
+  ├─ Custom Domain: https://api.dev.example.com (if configured)
+  └─ Default Endpoint: https://{api-id}.execute-api.{region}.amazonaws.com
   ↓
 Lambda (FastAPI API)
   ├─→ DynamoDB (optional persistence)
@@ -131,7 +273,12 @@ Lambda (SQS Worker)
 
 ### Networking & API
 - **API Gateway**: HTTP API endpoint for public access
+  - Default endpoint: `https://{api-id}.execute-api.{region}.amazonaws.com`
+  - Optional custom domain: `https://api.{environment}.{domain}` (requires DNS and ACM certificate)
 - **Route53**: DNS management (optional, for custom domains)
+  - Hosted zone for subdomain: `{environment}.{domain}`
+  - ACM certificate for SSL/TLS (wildcard: `*.{environment}.{domain}`)
+  - Automatic Route53 A record for API Gateway custom domain
 
 ### Messaging & Events
 - **SQS**: Message queue for asynchronous processing
@@ -162,7 +309,8 @@ Lambda (SQS Worker)
 ## Data Flow
 
 1. **API Request Flow**:
-   - User sends HTTP request to API Gateway
+   - User sends HTTP request (via custom domain or default endpoint)
+   - Route53 DNS resolves custom domain (if configured)
    - API Gateway routes to FastAPI Lambda function
    - Lambda processes request (may read/write DynamoDB)
    - Lambda may enqueue messages to SQS for async processing
@@ -264,7 +412,7 @@ resource "aws_lambda_function" "api" {
       API_KEY_SECRET_ARN = data.terraform_remote_state.core.outputs.api_key_secret_arn
     }
   }
-  
+
   # IAM policy statements for secret access
   iam_policy_statements = [
     {
@@ -313,10 +461,55 @@ def lambda_handler(event, context):
 
 ## Roadmap (Future Enhancements)
 
-- **Custom Domain**: Route53 + ACM for custom API Gateway domain
+- **Custom Domain**: Route53 + ACM for custom API Gateway domain (implemented, optional)
 - **VPC Integration**: Private subnets for Lambda functions if needed
 - **WAF**: Web Application Firewall in front of API Gateway
 - **Additional Persistence**: RDS or ElastiCache if required
 - **Multi-Region**: Disaster recovery and global distribution
 - **Monitoring**: CloudWatch dashboards and alarms
 - **X-Ray**: Distributed tracing for Lambda functions
+
+## DNS and Custom Domain Setup
+
+### Practice Mode (No Custom Domain)
+
+**Default Behavior**: API Gateway works immediately with default endpoint:
+- Endpoint: `https://{api-id}.execute-api.ap-southeast-1.amazonaws.com`
+- No DNS or certificate setup required
+- Perfect for development and testing
+
+### Production Mode (With Custom Domain)
+
+**Optional Setup**: Enable custom domain for professional API endpoint:
+
+1. **Configure DNS in 10_core layer**:
+   ```hcl
+   # In 10_core/environments/dev/terraform.tfvars
+   dns_config = {
+     domain_name = "example.com"  # Creates dev.example.com hosted zone
+   }
+   ```
+
+2. **For API Gateway**: Certificate MUST be in us-east-1. Set `use_us_east_1_certificate = true`:
+   ```hcl
+   # In 10_core/environments/dev/terraform.tfvars
+   use_us_east_1_certificate = true
+
+   dns_config = {
+     domain_name = "example.com"
+   }
+   ```
+
+   The provider alias (`aws.us_east_1`) is already configured in `providers.tf`. The module automatically uses it when `use_us_east_1_certificate` is set to `true`.
+
+3. **Automatic Integration**: `20_infra` layer automatically:
+   - Reads certificate ARN from `10_core` remote state
+   - Creates API Gateway custom domain
+   - Creates Route53 A record
+   - Maps API to custom domain
+
+4. **Result**: API accessible at `https://api.dev.example.com`
+
+**See**: 
+- `deploy/10_core/modules/dns/README.md` - DNS module documentation
+- `deploy/20_infra/modules/api-gateway/README.md` - API Gateway custom domain setup
