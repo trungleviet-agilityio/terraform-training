@@ -5,8 +5,8 @@ The `cb` CLI is a unified developer tool for building, testing, and deploying La
 ## Overview
 
 The `cb` CLI provides a consistent interface for common development workflows:
-- **Build**: Package Lambda functions into deployment-ready zip files
-- **Test**: Validate package integrity and structure
+- **Build**: Package runtime modules and Lambda functions into Lambda layers and application zip files with signatures.json
+- **Test**: Validate runtime module integrity (signatures.json, layer zips, app zips)
 - **Deploy**: Deploy Terraform infrastructure layers in the correct order
 - **Run**: Execute commands in package environments with proper dependency management
 
@@ -44,92 +44,95 @@ cb
 
 ### `cb build`
 
-Packages all Lambda packages found in `src/lambda/` into zip files in the `out/` directory.
+Packages all runtime modules from `src/runtime/` and Lambda packages from `src/lambda/` (with `pyproject.toml`) into Lambda layers and application zip files.
 
 **Behavior**:
-- Scans `src/lambda/` for package directories
-- For Python packages (detected by `requirements.txt`, `pyproject.toml`, or `.py` files):
-  - Uses UV to install dependencies to a `python/` directory (Lambda-compatible structure)
-  - Packages dependencies with the function code
-- Creates zip files: `out/<package-name>.zip`
+- Scans `src/runtime/` for runtime modules (directories with `pyproject.toml` and `src/` subdirectory)
+- Scans `src/lambda/` for Lambda packages (directories with `pyproject.toml`)
+- For each module/package:
+  - Installs dependencies into a Lambda layer zip (dependencies only)
+  - Packages source code into an app zip (code only)
+  - Generates `signatures.json` with paths and hashes for change detection
+- Creates output structure: `out/<module-name>/lambda_layer.zip`, `out/<module-name>/lambda_app.zip`, `out/<module-name>/signatures.json`
 
 **Examples**:
 ```bash
-# Build all packages
+# Build all runtime modules and lambda packages
 cb build
 
-# Build only a specific package
-cb build --only lambda-api
+# Build only a specific runtime module
+cb build --only practice_util
+
+# Build only a specific lambda package
+cb build --only api_server
 ```
 
-## Hybrid Packaging Workflow
+## Layer-Based Packaging Workflow
 
-This project supports a **hybrid packaging approach** that provides flexibility for different Lambda function requirements:
+This project uses a **layer-based packaging approach** that separates dependencies from application code:
 
-### When to Use `cb build` vs Terraform's `archive_file`
+### Build Process
 
-1. **Simple Functions (No Dependencies)**: Use Terraform's default `archive_file`
-   - Functions with only standard library imports
-   - No external dependencies required
-   - Terraform automatically packages during `terraform plan/apply`
-   - No manual build step needed
+1. **Runtime Modules** (`src/runtime/`): Shared utilities packaged as Lambda layers
+   - Dependencies installed into `lambda_layer.zip`
+   - Source code packaged into `lambda_app.zip`
+   - Creates `signatures.json` with paths and SHA256 hashes
 
-2. **Complex Functions (With Dependencies)**: Use `cb build` + Terraform
-   - Functions requiring external packages (e.g., `boto3`, `fastapi`, `mangum`)
-   - Dependencies defined in `pyproject.toml` or `requirements.txt`
-   - Requires manual build step before Terraform deployment
+2. **Lambda Functions** (`src/lambda/`): Application functions with `pyproject.toml`
+   - Each function built as a runtime module
+   - Creates its own layer and app zip
+   - Can reference shared runtime module layers
 
-### Workflow for Functions with Dependencies
+### Workflow
 
 ```bash
-# Step 1: Build Lambda packages with dependencies
+# Step 1: Build all runtime modules and lambda packages
 cb build
 
-# Step 2: Configure Terraform to use pre-built zip files
-# In your Terraform configuration, set use_prebuilt_zip = true:
-# module "lambda_package" {
-#   source = "../../../components/lambda_simple_package"
-#   source_path      = "${path.module}/../../src/lambda/api_server"
-#   server_name      = "api_server"
-#   output_dir       = "${path.module}/../../out"
-#   use_prebuilt_zip = true  # Use zip file created by cb build
-# }
+# This creates:
+# out/practice_util/
+#   ├── lambda_layer.zip (dependencies: boto3)
+#   ├── lambda_app.zip (source code)
+#   └── signatures.json (paths and hashes)
+# out/api_server/
+#   ├── lambda_layer.zip (dependencies: practice-util)
+#   ├── lambda_app.zip (source code: api_server.py)
+#   └── signatures.json
+# ... etc
 
-# Step 3: Deploy with Terraform
+# Step 2: Deploy with Terraform
+# Terraform's lambda_python_module component reads signatures.json
+# and creates Lambda layers automatically
 cd deploy/30_app/environments/dev
 terraform plan -var-file=terraform.tfvars
 terraform apply
 ```
 
-### Workflow for Simple Functions
-
-```bash
-# No build step needed - Terraform handles packaging automatically
-cd deploy/30_app/environments/dev
-terraform plan -var-file=terraform.tfvars
-terraform apply
-```
-
-**See**: `deploy/components/lambda_simple_package/README.md` for detailed component documentation.
+**See**: `deploy/components/lambda_python_module/README.md` for detailed component documentation.
 
 ### `cb test`
 
-Runs build first, then validates packages in `out/`.
+Runs build first, then validates runtime modules and lambda packages in `out/`.
 
 **Behavior**:
 1. Automatically runs `cb build` if packages haven't been built
-2. Validates each package zip file:
-   - Checks zip file integrity
-   - Validates file size (warns if > 50MB, Lambda limit)
-   - Ensures packages are ready for deployment
+2. Validates each runtime module:
+   - Checks `signatures.json` exists and is valid JSON
+   - Validates layer zip file integrity (warns if > 250MB, Lambda layer limit)
+   - Validates app zip file integrity (warns if > 50MB, Lambda function limit)
+   - Ensures paths in `signatures.json` are valid
+   - Verifies all required files exist
 
 **Examples**:
 ```bash
-# Test all packages
+# Test all runtime modules and lambda packages
 cb test
 
-# Test only a specific package
-cb test --only lambda-worker
+# Test only a specific runtime module
+cb test --only practice_util
+
+# Test only a specific lambda package
+cb test --only api_server
 ```
 
 ### `cb deploy`
@@ -231,39 +234,74 @@ Shows help and usage information.
 
 ## Package Structure
 
-Lambda packages should be organized as follows:
+### Runtime Modules (`src/runtime/`)
+
+Runtime modules are shared utilities packaged as Lambda layers:
+
+```
+src/runtime/
+└── practice_util/          # Runtime module directory
+    ├── pyproject.toml      # Dependencies (e.g., boto3)
+    └── src/
+        └── practice_util/  # Package source code
+            ├── __init__.py
+            └── dynamodb_client.py
+```
+
+### Lambda Packages (`src/lambda/`)
+
+Lambda packages are application functions that use runtime modules:
 
 ```
 src/lambda/
-├── lambda-api/          # Package directory
-│   ├── handler.py        # Lambda handler code
-│   ├── requirements.txt  # Python dependencies (optional)
-│   └── ...
-├── lambda-worker/
-│   ├── handler.py
-│   ├── pyproject.toml    # Alternative dependency file
-│   └── ...
-└── ...
+├── api_server/            # Lambda package directory
+│   ├── pyproject.toml      # Dependencies (e.g., practice-util)
+│   ├── api_server.py       # Lambda handler code
+│   └── __init__.py
+├── worker/
+│   ├── pyproject.toml
+│   ├── worker.py
+│   └── __init__.py
+└── cron_server/
+    ├── pyproject.toml
+    ├── cron_server.py
+    └── __init__.py
 ```
 
-### Python Package Detection
+### Package Detection
 
-A package is detected as Python if it contains:
-- `requirements.txt` file
-- `pyproject.toml` file
-- `Pipfile` file
-- Any `.py` files in the root directory
+A package is detected as a runtime module or lambda package if it contains:
+- `pyproject.toml` file (required)
+- For runtime modules: `src/` subdirectory with package source code
+- For lambda packages: Python files (`.py`) in the root directory
 
-When building Python packages:
-- Dependencies are installed using UV to a `python/` directory
-- The `python/` directory structure is Lambda-compatible
-- Dependencies are packaged alongside the function code
+When building:
+- Dependencies are installed into `lambda_layer.zip` (Lambda layer format)
+- Source code is packaged into `lambda_app.zip`
+- `signatures.json` is generated with paths and hashes for Terraform change detection
 
 ## Output Directory
 
-All built packages are placed in `practice/out/`:
-- `out/<package-name>.zip` - Individual package zip files
-- These zip files are ready for Lambda deployment
+All built modules are placed in `practice/out/`:
+
+```
+out/
+├── practice_util/              # Runtime module output
+│   ├── lambda_layer.zip        # Dependencies (boto3)
+│   ├── lambda_app.zip          # Source code
+│   ├── signatures.json         # Paths and hashes
+│   └── requirements.txt        # Generated requirements
+├── api_server/                 # Lambda package output
+│   ├── lambda_layer.zip        # Dependencies (practice-util)
+│   ├── lambda_app.zip          # Source code
+│   ├── signatures.json         # Paths and hashes
+│   └── requirements.txt        # Generated requirements
+└── ...
+```
+
+- `lambda_layer.zip` - Dependencies packaged as Lambda layer (ready for AWS Lambda Layer)
+- `lambda_app.zip` - Application source code (ready for Lambda function deployment)
+- `signatures.json` - Metadata file read by Terraform's `lambda_python_module` component
 
 ## Environment Configuration
 
@@ -287,17 +325,17 @@ The `cb deploy` command automatically:
 ### Typical Development Workflow
 
 ```bash
-# 1. Build your Lambda packages
+# 1. Build all runtime modules and lambda packages
 cb build
 
-# 2. Test packages
+# 2. Test all modules and packages
 cb test
 
 # 3. Deploy to dev environment
 cb deploy --env dev
 
 # 4. Run tests in package environment
-cb run lambda-api python -m pytest
+cb run api_server python -m pytest
 ```
 
 ### Incremental Deployment
@@ -317,10 +355,13 @@ cb deploy --only app --env dev
 
 ```bash
 # Build only the API Lambda
-cb build --only lambda-api
+cb build --only api_server
 
 # Test only the API Lambda
-cb test --only lambda-api
+cb test --only api_server
+
+# Build only practice_util runtime module
+cb build --only practice_util
 ```
 
 ## Error Handling
@@ -331,7 +372,7 @@ The CLI provides clear error messages and validation:
 - **Invalid environments**: Validates environment names (dev/stage/prod)
 - **Missing packages**: Lists available packages when a specified package is not found
 - **Invalid layers**: Lists available layers when a specified layer is not found
-- **Empty state**: Gracefully handles empty `src/lambda/` directory with helpful messages
+- **Empty state**: Gracefully handles empty `src/lambda/` and `src/runtime/` directories with helpful messages
 
 ## Integration with Terraform
 
@@ -346,9 +387,10 @@ The `cb deploy` command integrates seamlessly with Terraform:
 
 ### No packages found
 
-If you see "No packages found in src/lambda/":
-- Ensure Lambda packages are placed in subdirectories under `src/lambda/`
-- Example: `src/lambda/lambda-api/`, `src/lambda/lambda-worker/`
+If you see "No packages found":
+- Ensure runtime modules are in `src/runtime/` with `pyproject.toml` and `src/` subdirectory
+- Ensure lambda packages are in `src/lambda/` with `pyproject.toml`
+- Example: `src/runtime/practice_util/`, `src/lambda/api_server/`
 
 ### UV not found
 
@@ -366,9 +408,10 @@ If deployment fails with backend errors:
 ### Package size warnings
 
 If you see package size warnings:
-- Lambda function zip files must be < 50MB uncompressed
-- Lambda layers must be < 250MB uncompressed
-- Consider using Lambda Layers for large dependencies
+- Lambda function zip files (app zip) must be < 50MB uncompressed
+- Lambda layers (layer zip) must be < 250MB uncompressed
+- The build process automatically separates dependencies (layer) from code (app) to optimize sizes
+- Large dependencies should be packaged as shared runtime modules
 
 ## See Also
 

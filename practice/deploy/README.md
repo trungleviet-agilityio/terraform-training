@@ -65,7 +65,7 @@ deploy/
 The application layer uses a modular component-based architecture:
 
 **Components** (`deploy/components/`):
-- `lambda_simple_package`: Packages Lambda source code into zip files (supports hybrid packaging: archive_file or pre-built zip)
+- `lambda_python_module`: Packages Python Lambda modules into Lambda layers and application zip files (creates layers for dependencies, separates code from dependencies)
 - `lambda_fastapi_server`: FastAPI Lambda wrapper component with optional Function URL support
 - `lambda_cron_server`: Cron Lambda wrapper component for EventBridge schedules
 - `lambda_sqs_worker`: SQS worker Lambda wrapper component with event source mapping
@@ -522,7 +522,7 @@ Secrets follow a layered approach:
 
 Components are reusable building blocks located in `deploy/components/`:
 
-- **`lambda_simple_package`**: Packages Lambda source code into zip files (supports hybrid packaging: archive_file or pre-built zip)
+- **`lambda_python_module`**: Packages Python Lambda modules into Lambda layers and application zip files (creates layers for dependencies, separates code from dependencies)
 - **`lambda_fastapi_server`**: Creates FastAPI Lambda function with optional Function URL support
 - **`lambda_cron_server`**: Creates cron Lambda function for EventBridge schedules
 - **`lambda_sqs_worker`**: Creates SQS worker Lambda with event source mapping
@@ -540,9 +540,9 @@ Component Architecture:
 ┌──────────────────────────────────────────────────────────┐
 │ Components (deploy/components/)                          │
 ├──────────────────────────────────────────────────────────┤
-│ lambda_simple_package                                    │
-│   └─ Packages source code → zip files                    │
-│      (supports hybrid: archive_file or pre-built zip)    │
+│ lambda_python_module                                     │
+│   └─ Packages Python modules → Lambda layers + app zips │
+│      (creates layers for dependencies, separates code)  │
 │                                                          │
 │ lambda_fastapi_server                                    │
 │   └─ Creates FastAPI Lambda + Function URL (optional)    │
@@ -564,8 +564,8 @@ Component Architecture:
 │ Modules (deploy/30_app/modules/)                        │
 ├─────────────────────────────────────────────────────────┤
 │ runtime_code_modules                                    │
-│   └─ Uses: lambda_simple_package (×3)                   │
-│      (packages api_server, cron_server, worker)         │
+│   └─ Uses: lambda_python_module (×4)                    │
+│      (packages practice_util, api_server, cron_server, worker)│
 │                                                         │
 │ api_server                                              │
 │   └─ Uses: lambda_fastapi_server                        │
@@ -586,27 +586,48 @@ Component Architecture:
 └─────────────────────────────────────────────────────────┘
 ```
 
-### Hybrid Packaging Approach
+### Layer-Based Packaging Approach
 
-The `lambda_simple_package` component supports a **hybrid packaging workflow**:
+The `lambda_python_module` component uses a **layer-based packaging workflow**:
 
-1. **Simple Functions (No Dependencies)**: Uses Terraform's `archive_file` by default
-   - No manual build step required
-   - Terraform automatically packages during `terraform plan/apply`
-   - Suitable for functions with only standard library imports
+1. **Runtime Modules** (`src/runtime/`): Shared utilities packaged as Lambda layers
+   - Dependencies installed into Lambda layer zip
+   - Source code packaged separately as app zip
+   - Creates `signatures.json` with paths and hashes for change detection
+   - Example: `practice_util` (contains boto3 and shared utilities)
 
-2. **Complex Functions (With Dependencies)**: Uses pre-built zip files from `cb build`
-   - Run `cb build` first to install dependencies and create zip files
-   - Set `use_prebuilt_zip = true` in Terraform configuration
-   - Terraform will use the pre-built zip file instead of creating a new one
+2. **Lambda Functions** (`src/lambda/`): Application functions with dependencies
+   - Each function uses `lambda_python_module` to create its own layer and app zip
+   - Functions reference shared runtime module layers (e.g., `practice_util`)
+   - Dependencies separated from code for faster deployments
 
-**See**: `shared/docs/cb-cli.md` for detailed hybrid packaging workflow documentation.
+**Build Process**:
+```bash
+# Build all runtime modules and lambda packages
+cb build
+
+# This creates:
+# - out/practice_util/lambda_layer.zip (dependencies)
+# - out/practice_util/lambda_app.zip (source code)
+# - out/practice_util/signatures.json (paths and hashes)
+# - out/api_server/lambda_layer.zip
+# - out/api_server/lambda_app.zip
+# - out/api_server/signatures.json
+# ... etc
+```
+
+**Terraform Integration**:
+- `lambda_python_module` reads `signatures.json` to get layer and app zip paths
+- Creates AWS Lambda Layer resources
+- Lambda functions reference layer ARNs for shared dependencies
+
+**See**: `shared/docs/cb-cli.md` for detailed build process documentation.
 
 ### Module Structure
 
 Modules in `deploy/30_app/modules/` orchestrate components:
 
-- **`runtime_code_modules`**: Packages all Lambda source code using `lambda_simple_package` component
+- **`runtime_code_modules`**: Packages all Lambda source code and runtime modules using `lambda_python_module` component
 - **`api_server`**: Creates API Lambda using `lambda_fastapi_server` component
 - **`cron_server`**: Creates cron Lambda using `lambda_cron_server` component
 - **`worker`**: Creates worker Lambda using `lambda_sqs_worker` component
@@ -616,10 +637,12 @@ Modules in `deploy/30_app/modules/` orchestrate components:
 ### Lambda Deployment Flow
 
 ```
-src/lambda/
-    ↓
-runtime_code_modules (uses lambda_simple_package component × 3)
-    ↓ (outputs package info: zip_path, zip_hash)
+src/runtime/          src/lambda/
+    ↓                      ↓
+practice_util         api_server, worker, cron_server
+    ↓                      ↓
+runtime_code_modules (uses lambda_python_module component)
+    ↓ (outputs layer ARNs, app zip paths, signatures.json)
 20_infra layer
     ├─ Creates: DynamoDB tables, SQS queues
     ├─ Creates: Lambda policies (references DynamoDB/SQS)
@@ -629,11 +652,11 @@ runtime_code_modules (uses lambda_simple_package component × 3)
 30_app layer (consumes role ARNs)
     ↓
 api_server/cron_server/worker modules
-    ├─ api_server → uses lambda_fastapi_server component
-    ├─ cron_server → uses lambda_cron_server component
-    └─ worker → uses lambda_sqs_worker component
+    ├─ api_server → uses lambda_fastapi_server component + practice_util layer
+    ├─ cron_server → uses lambda_cron_server component + practice_util layer
+    └─ worker → uses lambda_sqs_worker component + practice_util layer
     ↓
-Lambda Functions created (using roles from 20_infra)
+Lambda Functions created (using roles from 20_infra, layers from runtime_code_modules)
     ↓
 Integration components (in 30_app/main)
     ├─ api_gateway_integration → connects API Gateway to API Lambda
