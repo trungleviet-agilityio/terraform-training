@@ -109,10 +109,6 @@ data "aws_iam_policy_document" "terraform_plan" {
       "acm:ListCertificates",
       "acm:ListTagsForCertificate",
 
-      # Secrets Manager permissions (read-only)
-      "secretsmanager:DescribeSecret",
-      "secretsmanager:ListSecrets",
-
       # KMS permissions
       "kms:DescribeKey",
       "kms:ListKeys",
@@ -142,8 +138,42 @@ data "aws_iam_policy_document" "terraform_plan" {
       "arn:aws:route53:::hostedzone/*",
       "arn:aws:route53:::change/*",
       "arn:aws:acm:${var.region}:${var.account_id}:certificate/*",
-      "arn:aws:acm:us-east-1:${var.account_id}:certificate/*",
-      "arn:aws:secretsmanager:${var.region}:${var.account_id}:secret:*",
+      "arn:aws:acm:us-east-1:${var.account_id}:certificate/*"
+    ]
+  }
+
+  # Secrets Manager permissions (read-only) - separate statement for resource restrictions
+  statement {
+    sid    = "SecretsManagerReadOnlyPermissions"
+    effect = "Allow"
+
+    actions = [
+      "secretsmanager:DescribeSecret",
+      "secretsmanager:ListSecrets",
+      "secretsmanager:GetSecretValue"
+    ]
+
+    resources = local.secrets_manager_resources
+
+    # Restrict to secrets managed by Terraform
+    condition {
+      test     = "StringEquals"
+      variable = "aws:ResourceTag/ManagedBy"
+      values   = ["Terraform"]
+    }
+  }
+
+  statement {
+    sid    = "KMSReadOnlyPermissions"
+    effect = "Allow"
+
+    actions = [
+      "kms:DescribeKey",
+      "kms:ListKeys",
+      "kms:ListAliases"
+    ]
+
+    resources = [
       "arn:aws:kms:${var.region}:${var.account_id}:key/*",
       "arn:aws:kms:${var.region}:${var.account_id}:alias/*",
       "arn:aws:logs:${var.region}:${var.account_id}:log-group:*",
