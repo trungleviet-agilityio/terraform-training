@@ -94,12 +94,16 @@ See individual module README files for detailed usage and examples.
    aws configure
    ```
 
+   **Note on Permissions**: Local development typically uses AWS credentials with broader permissions (admin/root or full access), while CI/CD uses restricted least-privilege IAM roles. If `terraform plan` works locally but fails in CI/CD, check that the `terraform-plan` role has all necessary read permissions. See `shared/docs/ci-cd.md` for details on permission differences.
+
 2. **Remote State**: S3 bucket and DynamoDB table will be created via Terraform modules in `10_core/modules/` (to be implemented)
 
 3. **Backend Configuration**: 
    - Each environment has a `providers.tf` file with static backend configuration
-   - Each environment has a `backend.tfvars` file with environment-specific bucket name
-   - Initialize with: `terraform init -backend-config=backend.tfvars`
+   - Backend bucket name is stored in AWS Secrets Manager: `/practice/{env}/backend-bucket`
+   - Secret is created automatically when `10_core` layer is deployed
+   - For local development, use `backend.tfvars` (gitignored) or retrieve from Secrets Manager
+   - CI/CD workflows automatically retrieve bucket name from Secrets Manager
 
 ### Deployment Steps
 
@@ -131,14 +135,16 @@ terraform apply -var-file=terraform.tfvars
 # Step 5: Get bucket name from outputs
 terraform output state_backend_bucket_name
 
-# Step 6: Update backend.tfvars with bucket name
-# (Edit backend.tfvars and update bucket value)
+# Step 6: Backend bucket secret is created automatically in Secrets Manager
+# Secret location: /practice/dev/backend-bucket
+# For local development, create backend.tfvars with bucket name (gitignored)
 
 # Step 7: Restore providers.tf with backend config
 cp providers.tf.backend providers.tf
 
 # Step 8: Reinitialize and migrate state
-terraform init -backend-config=backend.tfvars -migrate-state
+# For local dev: terraform init -backend-config=backend.tfvars -migrate-state
+# For CI/CD: Bucket name retrieved from Secrets Manager automatically
 
 # Step 9: Clean up backup
 rm providers.tf.backend
@@ -150,13 +156,16 @@ rm providers.tf.backend
 cd 10_core/environments/dev
 
 # Initialize Terraform
-terraform init -backend-config=backend.tfvars
+# For local dev: terraform init -backend-config=backend.tfvars
+# For CI/CD: Bucket name retrieved from Secrets Manager automatically
 
 # Review the plan
 terraform plan -var-file=terraform.tfvars
 
 # Apply changes
 terraform apply -var-file=terraform.tfvars
+
+# Note: Backend bucket secret is created/updated automatically in Secrets Manager
 ```
 
 #### Step 2: Deploy Infrastructure Layer
@@ -165,7 +174,8 @@ terraform apply -var-file=terraform.tfvars
 cd ../../20_infra/environments/dev
 
 # Initialize Terraform
-terraform init -backend-config=backend.tfvars
+# For local dev: terraform init -backend-config=backend.tfvars
+# For CI/CD: Bucket name retrieved from Secrets Manager automatically
 
 # Review the plan
 terraform plan -var-file=terraform.tfvars
@@ -180,7 +190,8 @@ terraform apply -var-file=terraform.tfvars
 cd ../../30_app/environments/dev
 
 # Initialize Terraform
-terraform init -backend-config=backend.tfvars
+# For local dev: terraform init -backend-config=backend.tfvars
+# For CI/CD: Bucket name retrieved from Secrets Manager automatically
 
 # Review the plan
 terraform plan -var-file=terraform.tfvars
@@ -236,28 +247,46 @@ See `shared/docs/terraform-state-and-backend.md` for detailed information about 
 
 ### Backend Configuration Pattern
 
-Backend configuration uses a two-file approach:
+Backend configuration uses AWS Secrets Manager for CI/CD workflows and supports local development:
 
+**For CI/CD Workflows:**
+- Backend bucket name is automatically stored in AWS Secrets Manager: `/practice/{env}/backend-bucket`
+- Created automatically when `10_core` layer is deployed
+- Workflows retrieve bucket name from Secrets Manager before `terraform init`
+- No `backend.tfvars` files needed in version control
+
+**For Local Development:**
+- Use `backend.tfvars` files for local development (not committed to version control)
+- Or retrieve from Secrets Manager: `aws secretsmanager get-secret-value --secret-id /practice/dev/backend-bucket`
+
+**Backend Configuration Files:**
 1. **`providers.tf`**: Contains static backend configuration (region, key, encrypt, dynamodb_table)
-2. **`backend.tfvars`**: Contains environment-specific values (bucket name)
+2. **`backend.tfvars`**: Contains environment-specific bucket name (for local dev, gitignored)
 
-**Initialization**:
+**Initialization (Local Development)**:
 ```bash
 cd deploy/30_app/environments/dev
 terraform init -backend-config=backend.tfvars
 ```
 
-**Why this pattern?**
-- Avoids hardcoded bucket names in version control
-- Allows different buckets per environment
-- Keeps shared configuration in `providers.tf`
-- Environment-specific values in `backend.tfvars` (can be gitignored if needed)
+**Initialization (CI/CD)**:
+```bash
+# Bucket name retrieved from Secrets Manager automatically
+terraform init -backend-config="bucket=${BUCKET_NAME}"
+```
+
+**Why Secrets Manager?**
+- ✅ Fully automated - no manual configuration needed
+- ✅ Secure - bucket names not in version control
+- ✅ Environment isolation - separate secrets per environment
+- ✅ Single source of truth - Secrets Manager is authoritative
+- ✅ Works for all layers and environments
 
 **Best Practices**:
-- Update `backend.tfvars` with your AWS account ID
-- Use consistent bucket naming: `tt-practice-tf-state-{environment}-{account-id}`
-- Keep `backend.tfvars` in version control (bucket names are not sensitive)
-- Each environment folder has its own `backend.tfvars` file
+- Bucket naming: `tt-practice-tf-state-{environment}-{account-id}`
+- Secret created automatically by `10_core` layer
+- `backend.tfvars` files are gitignored (use for local dev only)
+- CI/CD workflows use Secrets Manager automatically
 
 ## State Management
 

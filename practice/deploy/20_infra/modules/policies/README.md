@@ -75,8 +75,12 @@ module "iam_policies" {
 ### Terraform Plan Policy
 
 Grants permissions for:
-- **State Access**: S3 (`GetObject`, `PutObject`, `ListBucket`) and DynamoDB (`GetItem`, `PutItem`, `DeleteItem`, `DescribeTable`) for state management
-- **Read-Only Resource Access**: Describe, List, Get operations for all Terraform-managed resources (Lambda, API Gateway, SQS, DynamoDB, EventBridge Scheduler, Route53, ACM, Secrets Manager, KMS, CloudWatch Logs, IAM)
+- **State Access**: 
+  - S3: `GetObject`, `PutObject`, `ListBucket`, `GetBucket*` (wildcard covers all bucket configuration read operations like GetBucketWebsite, GetBucketCors, GetBucketVersioning, etc.)
+  - DynamoDB: `GetItem`, `PutItem`, `DeleteItem`, `DescribeTable`, `DescribeTimeToLive` for state locking
+- **Read-Only Resource Access**: Describe, List, Get operations for all Terraform-managed resources:
+  - Lambda, API Gateway, SQS, DynamoDB, EventBridge Scheduler, Route53, ACM, Secrets Manager, KMS, CloudWatch Logs
+  - IAM: `GetRole`, `GetPolicy`, `GetPolicyVersion`, `GetOpenIDConnectProvider`, and related read operations
 
 ### Terraform Apply Policy
 
@@ -98,19 +102,22 @@ Grants permissions for:
 
 ## Security Considerations
 
-- **Least Privilege**: Policies follow least-privilege principle with specific actions (no wildcards except where necessary)
-- **API Gateway**: Uses specific `apigatewayv2:*` actions instead of `apigateway:*` wildcard
+- **Least Privilege**: Policies follow least-privilege principle with specific actions (wildcards used only where necessary and scoped to specific resources)
+- **S3 Bucket Read Operations**: Uses `s3:GetBucket*` wildcard for bucket-level read operations (scoped to state bucket ARN only). This is necessary because Terraform's AWS provider reads ALL bucket configurations during refresh (website, CORS, logging, etc.), even if not explicitly configured. The wildcard avoids missing permission issues while maintaining least privilege at the resource level.
+- **API Gateway**: Uses `apigatewayv2:*` wildcard (scoped to API Gateway resources only)
 - **EventBridge**: Uses EventBridge Scheduler (`scheduler:*`) actions, not Events (`events:*`)
-- **DynamoDB**: Permissions added for table creation in `20_infra` layer
+- **DynamoDB**: Permissions added for table creation in `20_infra` layer, includes `DescribeTimeToLive` for reading TTL configuration
 - **Route53 & ACM**: Permissions added for DNS and certificate management in `10_core` layer
 - **Secrets Manager**: 
   - Scoped to `/practice/*` pattern for better least privilege
   - When `project_name` is provided, also allows `${project_name}-*` pattern
   - Requires `ManagedBy=Terraform` tag on secrets
+  - Includes `GetResourcePolicy` for reading secret resource policies
 - **KMS**: Key creation (`kms:CreateKey`) and deletion scheduling removed for security
 - **IAM**: 
   - When `project_name` is provided, restricted to resources with matching `Project` tag
   - PassRole restricted to project-named roles (`${project_name}-*`) when `project_name` is provided
+  - Includes `GetPolicyVersion` for reading IAM policy versions
 - **Resource ARNs**: Scoped to specific account and region where possible
 - **Policy Structure**: Simplified to only create plan and apply policies (removed redundant intermediate policies)
 
