@@ -60,10 +60,14 @@ jobs:
           fi
 
           # Convert array to JSON format for matrix
-          LAYERS_JSON=$(printf '%s\n' "${CHANGED_LAYERS_ARR[@]}" | jq -R . | jq -s .)
+          # Create JSON array and ensure no extra whitespace or newlines
+          LAYERS_JSON=$(printf '%s\n' "${CHANGED_LAYERS_ARR[@]}" | jq -R . | jq -s -c . | tr -d '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 
+          # Write to GitHub Actions output
           echo "layers=$LAYERS_JSON" >> $GITHUB_OUTPUT
+
           echo "Detected changed layers: ${CHANGED_LAYERS_ARR[*]}"
+          echo "Layers JSON: $LAYERS_JSON"
 
   validate:
     name: Validate Terraform - ${{ matrix.layer }}
