@@ -85,12 +85,15 @@ data "aws_iam_policy_document" "terraform_plan" {
       "lambda:ListAliases",
       "lambda:ListTags",
 
-      # API Gateway v2 permissions
+      # API Gateway v2 permissions (HTTP API)
       "apigatewayv2:GetApi",
       "apigatewayv2:GetStage",
       "apigatewayv2:GetDomainName",
       "apigatewayv2:GetIntegration",
       "apigatewayv2:GetRoute",
+      # API Gateway v1 permissions (required by Terraform AWS provider for reading v2 resources)
+      # Note: Terraform internally uses v1 APIs for some operations even when managing v2 resources
+      "apigateway:GET",
 
       # SQS permissions
       "sqs:GetQueueAttributes",
@@ -107,6 +110,7 @@ data "aws_iam_policy_document" "terraform_plan" {
       "dynamodb:DescribeTable",
       "dynamodb:ListTables",
       "dynamodb:ListTagsOfResource",
+      "dynamodb:DescribeContinuousBackups",
 
       # Route53 permissions
       "route53:GetHostedZone",
@@ -125,6 +129,9 @@ data "aws_iam_policy_document" "terraform_plan" {
 
       # CloudWatch Logs permissions
       "logs:DescribeLogGroups",
+      # CloudWatch permissions
+      "cloudwatch:DescribeAlarms",
+      "cloudwatch:ListMetrics",
 
       # IAM permissions (read-only)
       "iam:GetRole",
@@ -135,7 +142,9 @@ data "aws_iam_policy_document" "terraform_plan" {
       "iam:ListRolePolicies",
       "iam:GetRolePolicy",
       "iam:ListPolicyTags",
-      "iam:ListRoleTags"
+      "iam:ListRoleTags",
+      "iam:GetOpenIDConnectProvider",
+      "iam:ListOpenIDConnectProviders"
     ]
 
     resources = [
@@ -147,7 +156,8 @@ data "aws_iam_policy_document" "terraform_plan" {
       "arn:aws:route53:::hostedzone/*",
       "arn:aws:route53:::change/*",
       "arn:aws:acm:${var.region}:${var.account_id}:certificate/*",
-      "arn:aws:acm:us-east-1:${var.account_id}:certificate/*"
+      "arn:aws:acm:us-east-1:${var.account_id}:certificate/*",
+      "arn:aws:cloudwatch:${var.region}:${var.account_id}:alarm:*"
     ]
   }
 
@@ -187,7 +197,8 @@ data "aws_iam_policy_document" "terraform_plan" {
       "arn:aws:kms:${var.region}:${var.account_id}:alias/*",
       "arn:aws:logs:${var.region}:${var.account_id}:log-group:*",
       "arn:aws:iam::${var.account_id}:role/*",
-      "arn:aws:iam::${var.account_id}:policy/*"
+      "arn:aws:iam::${var.account_id}:policy/*",
+      "arn:aws:iam::${var.account_id}:oidc-provider/*"
     ]
   }
 }
