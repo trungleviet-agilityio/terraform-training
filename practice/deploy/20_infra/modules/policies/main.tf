@@ -39,8 +39,13 @@ locals {
 
 data "aws_iam_policy_document" "terraform_plan" {
   # S3 bucket access for Terraform state
-  # Uses GetBucket* wildcard to cover all bucket configuration read operations
+  # Uses GetBucket* wildcard to cover most bucket configuration read operations
   # Terraform reads all bucket configurations during refresh, even if not explicitly configured
+  # Note: Some actions don't follow the GetBucket* pattern and must be explicitly included:
+  # - s3:GetAccelerateConfiguration (not s3:GetBucketAccelerateConfiguration)
+  # - s3:GetLifecycleConfiguration (not s3:GetBucketLifecycleConfiguration)
+  # - s3:GetReplicationConfiguration (not s3:GetBucketReplicationConfiguration)
+  # - s3:GetEncryptionConfiguration (not s3:GetBucketEncryptionConfiguration)
   statement {
     sid    = "S3StateAccess"
     effect = "Allow"
@@ -49,7 +54,12 @@ data "aws_iam_policy_document" "terraform_plan" {
       "s3:GetObject",
       "s3:PutObject",
       "s3:ListBucket",
-      "s3:GetBucket*"  # Covers all bucket configuration read operations (GetBucketWebsite, GetBucketCors, etc.)
+      "s3:GetBucket*",  # Covers most bucket configuration read operations (GetBucketWebsite, GetBucketCors, GetBucketVersioning, etc.)
+      # Exceptions: S3 actions that don't follow GetBucket* pattern
+      "s3:GetAccelerateConfiguration",
+      "s3:GetLifecycleConfiguration",
+      "s3:GetReplicationConfiguration",
+      "s3:GetEncryptionConfiguration"
     ]
 
     resources = [
@@ -150,7 +160,8 @@ data "aws_iam_policy_document" "terraform_plan" {
       "arn:aws:route53:::change/*",
       "arn:aws:acm:${var.region}:${var.account_id}:certificate/*",
       "arn:aws:acm:us-east-1:${var.account_id}:certificate/*",
-      "arn:aws:cloudwatch:${var.region}:${var.account_id}:alarm:*"
+      "arn:aws:cloudwatch:${var.region}:${var.account_id}:alarm:*",
+      "arn:aws:logs:${var.region}:${var.account_id}:log-group:*"
     ]
   }
 
@@ -215,11 +226,7 @@ data "aws_iam_policy_document" "terraform_plan" {
 
     resources = [
       "arn:aws:kms:${var.region}:${var.account_id}:key/*",
-      "arn:aws:kms:${var.region}:${var.account_id}:alias/*",
-      "arn:aws:logs:${var.region}:${var.account_id}:log-group:*",
-      "arn:aws:iam::${var.account_id}:role/*",
-      "arn:aws:iam::${var.account_id}:policy/*",
-      "arn:aws:iam::${var.account_id}:oidc-provider/*"
+      "arn:aws:kms:${var.region}:${var.account_id}:alias/*"
     ]
   }
 }
@@ -230,8 +237,13 @@ data "aws_iam_policy_document" "terraform_plan" {
 
 data "aws_iam_policy_document" "terraform_apply" {
   # S3 bucket access for Terraform state
-  # Uses GetBucket* wildcard to cover all bucket configuration read operations
+  # Uses GetBucket* wildcard to cover most bucket configuration read operations
   # Terraform reads all bucket configurations during refresh, even if not explicitly configured
+  # Note: Some actions don't follow the GetBucket* pattern and must be explicitly included:
+  # - s3:GetAccelerateConfiguration (not s3:GetBucketAccelerateConfiguration)
+  # - s3:GetLifecycleConfiguration (not s3:GetBucketLifecycleConfiguration)
+  # - s3:GetReplicationConfiguration (not s3:GetBucketReplicationConfiguration)
+  # - s3:GetEncryptionConfiguration (not s3:GetBucketEncryptionConfiguration)
   statement {
     sid    = "S3StateAccess"
     effect = "Allow"
@@ -240,7 +252,12 @@ data "aws_iam_policy_document" "terraform_apply" {
       "s3:GetObject",
       "s3:PutObject",
       "s3:ListBucket",
-      "s3:GetBucket*"  # Covers all bucket configuration read operations (GetBucketWebsite, GetBucketCors, etc.)
+      "s3:GetBucket*",  # Covers most bucket configuration read operations (GetBucketWebsite, GetBucketCors, GetBucketVersioning, etc.)
+      # Exceptions: S3 actions that don't follow GetBucket* pattern
+      "s3:GetAccelerateConfiguration",
+      "s3:GetLifecycleConfiguration",
+      "s3:GetReplicationConfiguration",
+      "s3:GetEncryptionConfiguration"
     ]
 
     resources = [
