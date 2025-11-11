@@ -74,3 +74,13 @@ output "dns_certificate_domain" {
   value       = length(module.dns) > 0 ? module.dns[0].certificate_domain : (length(module.dns_us_east_1) > 0 ? module.dns_us_east_1[0].certificate_domain : null)
   description = "Primary domain name of the certificate. Null if DNS not configured."
 }
+
+output "backend_bucket_secret_arn" {
+  value       = module.backend_bucket_secret.secret_arn
+  description = "ARN of the Secrets Manager secret storing the backend bucket name. Used by CI/CD workflows."
+}
+
+output "backend_bucket_secret_name" {
+  value       = module.backend_bucket_secret.secret_name
+  description = "Full name of the Secrets Manager secret storing the backend bucket name (/practice/{env}/backend-bucket)."
+}
