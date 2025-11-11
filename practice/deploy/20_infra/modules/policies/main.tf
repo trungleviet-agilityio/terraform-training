@@ -516,14 +516,43 @@ data "aws_iam_policy_document" "terraform_apply" {
     ]
 
     # Restrict to project-managed resources when project_name is provided
+    # Allow access if resource has matching Project tag
     dynamic "condition" {
       for_each = var.project_name != "" ? [1] : []
       content {
-        test     = "StringLike"
+        test     = "StringEquals"
         variable = "iam:ResourceTag/Project"
         values   = [var.project_name]
       }
     }
+  }
+
+  # IAM permissions for resources matching project naming pattern (fallback for roles/policies without tags)
+  # This ensures GitHub Actions roles can be managed even if they don't have the Project tag
+  statement {
+    sid    = "IAMPermissionsByNamePattern"
+    effect = "Allow"
+
+    actions = [
+      "iam:AttachRolePolicy",
+      "iam:DetachRolePolicy",
+      "iam:ListAttachedRolePolicies",
+      "iam:PutRolePolicy",
+      "iam:DeleteRolePolicy",
+      "iam:GetRolePolicy",
+      "iam:ListRolePolicies",
+      "iam:TagRole",
+      "iam:UntagRole",
+      "iam:ListRoleTags",
+      "iam:GetRole",
+      "iam:ListRoles"
+    ]
+
+    resources = var.project_name != "" ? [
+      "arn:aws:iam::${var.account_id}:role/${var.project_name}-*",
+      "arn:aws:iam::${var.account_id}:policy/${var.project_name}-*",
+      "arn:aws:iam::${var.account_id}:policy/github-actions-terraform-*"
+    ] : []
   }
 
   # PassRole permission (required for Lambda, API Gateway, EventBridge Scheduler)
