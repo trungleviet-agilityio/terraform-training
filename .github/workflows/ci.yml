@@ -114,7 +114,7 @@ jobs:
           ENVIRONMENT: dev
         run: |
           SECRET_NAME="/practice/${ENVIRONMENT}/backend-bucket"
-          
+
           # Try to retrieve from Secrets Manager
           if aws secretsmanager describe-secret --secret-id "$SECRET_NAME" &>/dev/null; then
             echo "Retrieving bucket name from Secrets Manager..."
@@ -122,7 +122,7 @@ jobs:
               --secret-id "$SECRET_NAME" \
               --query SecretString --output text)
             BUCKET_NAME=$(echo "$SECRET_VALUE" | jq -r '.bucket')
-            
+
             if [ -n "$BUCKET_NAME" ] && [ "$BUCKET_NAME" != "null" ]; then
               echo "bucket=$BUCKET_NAME" >> $GITHUB_OUTPUT
               echo "backend_available=true" >> $GITHUB_OUTPUT
@@ -152,7 +152,7 @@ jobs:
         id: terraform-plan
         working-directory: practice/deploy/${{ matrix.layer }}/environments/dev
         run: |
-          terraform plan -var-file=terraform.tfvars -no-color -out=tfplan | tee plan_output.txt
+          terraform plan -no-color -out=tfplan | tee plan_output.txt
         continue-on-error: true
 
       - name: Comment PR with Plan Output
