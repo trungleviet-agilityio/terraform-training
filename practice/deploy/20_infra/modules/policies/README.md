@@ -5,10 +5,8 @@ This module creates IAM policies for both GitHub Actions (Terraform operations) 
 ## Resources Created
 
 ### GitHub Actions Policies (optional - created if `policy_name_prefix` is provided)
-- `aws_iam_policy.terraform_state_access`: Policy for S3 state bucket and DynamoDB state locking
-- `aws_iam_policy.terraform_resource_creation`: Policy for creating/updating/deleting Terraform resources
-- `aws_iam_policy.terraform_plan`: Policy for Terraform plan operations (read-only + state access)
-- `aws_iam_policy.terraform_apply`: Policy for Terraform apply operations (full access + state access)
+- `aws_iam_policy.terraform_plan`: Policy for Terraform plan operations (read-only resource access + state access)
+- `aws_iam_policy.terraform_apply`: Policy for Terraform apply operations (full resource access + state access)
 
 ### Lambda Policies (always created if resources exist)
 - `aws_iam_policy.lambda_dynamodb_access`: Policy for Lambda functions to access DynamoDB tables
@@ -61,10 +59,10 @@ module "iam_policies" {
 ### GitHub Actions Policy Outputs
 | Name | Description |
 |------|-------------|
-| `terraform_state_access_policy_arn` | ARN of the state access policy. Null if GitHub Actions policies not created. |
-| `terraform_resource_creation_policy_arn` | ARN of the resource creation policy. Null if GitHub Actions policies not created. |
-| `terraform_plan_policy_arn` | ARN of the plan policy. Null if GitHub Actions policies not created. |
-| `terraform_apply_policy_arn` | ARN of the apply policy. Null if GitHub Actions policies not created. |
+| `terraform_plan_policy_arn` | ARN of the plan policy (read-only + state access). Null if GitHub Actions policies not created. |
+| `terraform_apply_policy_arn` | ARN of the apply policy (full access + state access). Null if GitHub Actions policies not created. |
+| `terraform_plan_policy_name` | Name of the plan policy. Null if GitHub Actions policies not created. |
+| `terraform_apply_policy_name` | Name of the apply policy. Null if GitHub Actions policies not created. |
 
 ### Lambda Policy Outputs
 | Name | Description |
@@ -74,52 +72,54 @@ module "iam_policies" {
 
 ## Policy Details
 
-### Terraform State Access Policy
-
-Grants permissions for:
-- S3: `GetObject`, `PutObject`, `ListBucket` on state bucket
-- DynamoDB: `GetItem`, `PutItem`, `DeleteItem`, `DescribeTable` on state lock table
-
-### Terraform Resource Creation Policy
-
-Grants permissions for Terraform-managed resources:
-- **Lambda**: Create, update, delete functions, aliases, permissions
-- **API Gateway v2**: Specific actions for HTTP API, stages, custom domains, integrations, routes (not wildcard)
-- **DynamoDB**: Create, update, delete tables and tags
-- **SQS**: Create, update, delete queues
-- **EventBridge Scheduler**: Create, update, delete schedules (not Events rules)
-- **Route53**: Create, update, delete hosted zones and DNS records
-- **ACM**: Request, manage SSL/TLS certificates (including us-east-1 for API Gateway)
-- **Secrets Manager**: Create, update, delete secrets (scoped to project name prefix)
-- **KMS**: Manage existing keys and aliases (key creation removed for security)
-- **CloudWatch Logs**: Create, update, delete log groups
-- **IAM**: Create, update, delete roles and policies (for service roles)
-- **PassRole**: Pass roles to AWS services (Lambda, API Gateway, EventBridge Scheduler)
-
 ### Terraform Plan Policy
 
-Combines:
-- State access permissions (full)
-- Read-only resource permissions (Describe, List, Get operations)
+Grants permissions for:
+- **State Access**: 
+  - S3: `GetObject`, `PutObject`, `ListBucket`, `GetBucket*` (wildcard covers all bucket configuration read operations like GetBucketWebsite, GetBucketCors, GetBucketVersioning, etc.)
+  - DynamoDB: `GetItem`, `PutItem`, `DeleteItem`, `DescribeTable`, `DescribeTimeToLive` for state locking
+- **Read-Only Resource Access**: Describe, List, Get operations for all Terraform-managed resources:
+  - Lambda, API Gateway, SQS, DynamoDB, EventBridge Scheduler, Route53, ACM, Secrets Manager, KMS, CloudWatch Logs
+  - IAM: `GetRole`, `GetPolicy`, `GetPolicyVersion`, `GetOpenIDConnectProvider`, and related read operations
 
 ### Terraform Apply Policy
 
-Combines:
-- State access permissions (full)
-- Resource creation permissions (full)
+Grants permissions for:
+- **State Access**: Full S3 and DynamoDB access for state management (same as plan policy)
+- **Full Resource Access**: Create, update, delete operations for Terraform-managed resources:
+  - **Lambda**: Create, update, delete functions, aliases, permissions
+  - **API Gateway v2**: Specific actions for HTTP API, stages, custom domains, integrations, routes
+  - **DynamoDB**: Create, update, delete tables and tags
+  - **SQS**: Create, update, delete queues
+  - **EventBridge Scheduler**: Create, update, delete schedules
+  - **Route53**: Create, update, delete hosted zones and DNS records
+  - **ACM**: Request, manage SSL/TLS certificates (including us-east-1 for API Gateway)
+  - **Secrets Manager**: Create, update, delete secrets (scoped to `/practice/*` pattern and project prefix)
+  - **KMS**: Manage existing keys and aliases (key creation removed for security)
+  - **CloudWatch Logs**: Create, update, delete log groups
+  - **IAM**: Create, update, delete roles and policies (restricted to project-managed resources when `project_name` is provided)
+  - **PassRole**: Pass roles to AWS services (restricted to project-named roles when `project_name` is provided)
 
 ## Security Considerations
 
-- **Least Privilege**: Policies follow least-privilege principle with specific actions (no wildcards except where necessary)
-- **API Gateway**: Uses specific `apigatewayv2:*` actions instead of `apigateway:*` wildcard
+- **Least Privilege**: Policies follow least-privilege principle with specific actions (wildcards used only where necessary and scoped to specific resources)
+- **S3 Bucket Read Operations**: Uses `s3:GetBucket*` wildcard for bucket-level read operations (scoped to state bucket ARN only). This is necessary because Terraform's AWS provider reads ALL bucket configurations during refresh (website, CORS, logging, etc.), even if not explicitly configured. The wildcard avoids missing permission issues while maintaining least privilege at the resource level.
+- **API Gateway**: Uses `apigatewayv2:*` wildcard (scoped to API Gateway resources only)
 - **EventBridge**: Uses EventBridge Scheduler (`scheduler:*`) actions, not Events (`events:*`)
-- **DynamoDB**: Permissions added for table creation in `20_infra` layer
+- **DynamoDB**: Permissions added for table creation in `20_infra` layer, includes `DescribeTimeToLive` for reading TTL configuration
 - **Route53 & ACM**: Permissions added for DNS and certificate management in `10_core` layer
-- **Secrets Manager**: Scoped to secrets with project name prefix (`${project_name}-*`)
+- **Secrets Manager**: 
+  - Scoped to `/practice/*` pattern for better least privilege
+  - When `project_name` is provided, also allows `${project_name}-*` pattern
+  - Requires `ManagedBy=Terraform` tag on secrets
+  - Includes `GetResourcePolicy` for reading secret resource policies
 - **KMS**: Key creation (`kms:CreateKey`) and deletion scheduling removed for security
-- **IAM**: Broad permissions required for Terraform operations; consider adding resource restrictions in production
-- **PassRole**: Restricted to specific services (Lambda, API Gateway, EventBridge Scheduler)
+- **IAM**: 
+  - When `project_name` is provided, restricted to resources with matching `Project` tag
+  - PassRole restricted to project-named roles (`${project_name}-*`) when `project_name` is provided
+  - Includes `GetPolicyVersion` for reading IAM policy versions
 - **Resource ARNs**: Scoped to specific account and region where possible
+- **Policy Structure**: Simplified to only create plan and apply policies (removed redundant intermediate policies)
 
 ## References
 

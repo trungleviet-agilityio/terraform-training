@@ -77,3 +77,18 @@ module "dns_us_east_1" {
 
   tags = local.common_tags
 }
+
+# Store backend bucket name in AWS Secrets Manager for CI/CD workflows
+# This allows workflows to retrieve bucket name without committing backend.tfvars
+module "backend_bucket_secret" {
+  source = "../modules/secrets"
+
+  secret_name  = "backend-bucket"
+  description  = "Terraform state backend S3 bucket name for CI/CD workflows"
+  environment  = var.environment
+  secret_string = jsonencode({
+    bucket = module.state_backend.bucket_name
+  })
+
+  tags = local.common_tags
+}

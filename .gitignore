@@ -16,6 +16,10 @@ crash.*.log
 *.tfvars
 *.tfvars.json
 
+# Backend configuration files (contains bucket names)
+# These are now managed via AWS Secrets Manager for CI/CD workflows
+**/backend.tfvars
+
 # Ignore override files as they are usually used to override resources locally and so
 # are not checked in
 override.tf

@@ -3,11 +3,10 @@ name: Terraform Apply
 on:
   push:
     branches:
-      - develop
-      - staging
-      - main
+      - feat/terraform-practice
     paths:
       - 'practice/deploy/**'
+      - '.github/workflows/apply.yml'
   workflow_dispatch:
     inputs:
       layer:
@@ -16,10 +15,14 @@ on:
         type: string
         default: ''
       environment:
-        description: 'Environment to deploy to (auto-detect from branch if not specified)'
+        description: 'Environment to deploy to (default: dev)'
         required: false
-        type: string
-        default: ''
+        type: choice
+        options:
+          - dev
+          - stage
+          - prod
+        default: 'dev'
 
 permissions:
   id-token: write
@@ -27,7 +30,7 @@ permissions:
 
 jobs:
   detect-changes:
-    name: Detect Changed Layers
+    name: Detect Changed Layers and Environment
     runs-on: ubuntu-latest
     outputs:
       layers: ${{ steps.detect.outputs.layers }}
@@ -57,12 +60,15 @@ jobs:
                 CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
               else
                 # First commit: compare with base branch or list all files
-                CHANGED_FILES=$(git diff --name-only --diff-filter=A HEAD || git ls-files)
+                CHANGED_FILES=$(git diff --name-only --diff-filter=A HEAD || git ls-files practice/deploy/)
               fi
             else
               # For workflow_dispatch, check all files or use a default
               CHANGED_FILES=$(git ls-files practice/deploy/)
             fi
+
+            echo "Changed files:"
+            echo "$CHANGED_FILES"
 
             # Detect which layers have changes
             if echo "$CHANGED_FILES" | grep -q "^practice/deploy/10_core/"; then
@@ -74,59 +80,47 @@ jobs:
             if echo "$CHANGED_FILES" | grep -q "^practice/deploy/30_app/"; then
               CHANGED_LAYERS_ARR+=("30_app")
             fi
-            
+
             # If no layers detected, apply all layers (GitOps: ensure consistency)
             if [ ${#CHANGED_LAYERS_ARR[@]} -eq 0 ]; then
+              echo "No specific layer changes detected. Applying all layers for consistency."
               CHANGED_LAYERS_ARR=("10_core" "20_infra" "30_app")
             fi
           fi
-          
+
           # Convert array to JSON format for matrix
-          LAYERS_JSON=$(printf '%s\n' "${CHANGED_LAYERS_ARR[@]}" | jq -R . | jq -s .)
-          
+          # Create JSON array and ensure no extra whitespace or newlines
+          LAYERS_JSON=$(printf '%s\n' "${CHANGED_LAYERS_ARR[@]}" | jq -R . | jq -s -c . | tr -d '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
           echo "layers=$LAYERS_JSON" >> $GITHUB_OUTPUT
           echo "Detected changed layers: ${CHANGED_LAYERS_ARR[*]}"
+          echo "Layers JSON: $LAYERS_JSON"
 
-      - name: Determine environment from branch
+      - name: Determine environment
         id: env
         run: |
           ENV=""
-          
+
           # Check if manual input provided (only available for workflow_dispatch)
           MANUAL_ENV="${{ github.event.inputs.environment }}"
-          
+
           if [ -n "$MANUAL_ENV" ]; then
             ENV="$MANUAL_ENV"
           else
-            # Determine environment from branch name (GitOps pattern)
-            BRANCH_NAME="${{ github.ref_name }}"
-            
-            case "$BRANCH_NAME" in
-              develop|development|dev)
-                ENV="dev"
-                ;;
-              staging|stage)
-                ENV="stage"
-                ;;
-              main|master|prod|production)
-                ENV="prod"
-                ;;
-              *)
-                # Default to dev for unknown branches
-                ENV="dev"
-                ;;
-            esac
+            # Default to dev for feat/terraform-practice branch (as per plan)
+            ENV="dev"
           fi
-          
+
           echo "environment=$ENV" >> $GITHUB_OUTPUT
-          echo "Determined environment: $ENV (from branch: ${{ github.ref_name }})"
+          echo "Determined environment: $ENV"
 
   apply:
-    name: Apply Terraform
+    name: Apply Terraform - ${{ matrix.layer }} (${{ needs.detect-changes.outputs.environment }})
     needs: detect-changes
     runs-on: ubuntu-latest
     environment: ${{ needs.detect-changes.outputs.environment }}
     strategy:
+      fail-fast: false
       matrix:
         layer: ${{ fromJson(needs.detect-changes.outputs.layers) }}
     steps:
@@ -144,13 +138,57 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ~> 1.5.0
+          terraform_wrapper: false
+
+      - name: Get backend bucket name from Secrets Manager
+        id: backend-config
+        env:
+          ENVIRONMENT: ${{ needs.detect-changes.outputs.environment }}
+        run: |
+          SECRET_NAME="/practice/${ENVIRONMENT}/backend-bucket"
+
+          # Try to retrieve from Secrets Manager
+          if aws secretsmanager describe-secret --secret-id "$SECRET_NAME" &>/dev/null; then
+            echo "Retrieving bucket name from Secrets Manager..."
+            SECRET_VALUE=$(aws secretsmanager get-secret-value \
+              --secret-id "$SECRET_NAME" \
+              --query SecretString --output text)
+            BUCKET_NAME=$(echo "$SECRET_VALUE" | jq -r '.bucket')
+
+            if [ -n "$BUCKET_NAME" ] && [ "$BUCKET_NAME" != "null" ]; then
+              echo "bucket=$BUCKET_NAME" >> $GITHUB_OUTPUT
+              echo "backend_available=true" >> $GITHUB_OUTPUT
+              echo "Using bucket from Secrets Manager: $BUCKET_NAME"
+            else
+              echo "Failed to parse bucket name from secret"
+              echo "backend_available=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "Secret not found, constructing bucket name from pattern..."
+            # Fallback: construct bucket name from pattern
+            ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+            BUCKET_NAME="tt-practice-tf-state-${ENVIRONMENT}-${ACCOUNT_ID}"
+            echo "bucket=$BUCKET_NAME" >> $GITHUB_OUTPUT
+            echo "backend_available=true" >> $GITHUB_OUTPUT
+            echo "Using constructed bucket name: $BUCKET_NAME"
+          fi
 
       - name: Terraform Init
+        if: steps.backend-config.outputs.backend_available == 'true'
         working-directory: practice/deploy/${{ matrix.layer }}/environments/${{ needs.detect-changes.outputs.environment }}
         run: |
-          terraform init -backend-config=backend.tfvars
+          terraform init -backend-config="bucket=${{ steps.backend-config.outputs.bucket }}"
+
+      - name: Terraform Validate
+        working-directory: practice/deploy/${{ matrix.layer }}/environments/${{ needs.detect-changes.outputs.environment }}
+        run: terraform validate
+
+      - name: Terraform Plan
+        working-directory: practice/deploy/${{ matrix.layer }}/environments/${{ needs.detect-changes.outputs.environment }}
+        run: |
+          terraform plan -no-color -out=tfplan
 
       - name: Terraform Apply
         working-directory: practice/deploy/${{ matrix.layer }}/environments/${{ needs.detect-changes.outputs.environment }}
         run: |
-          terraform apply -auto-approve -var-file=terraform.tfvars
+          terraform apply -auto-approve tfplan
