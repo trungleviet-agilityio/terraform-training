@@ -2,7 +2,7 @@
 # Creates IAM policies for Terraform operations
 
 # ============================================================================
-# Locals - Reusable validation conditions and tag patterns
+# Locals - Reusable validation conditions
 # ============================================================================
 
 locals {
@@ -15,21 +15,20 @@ locals {
   validate_account_id         = local.create_github_actions_policies ? can(regex("^[0-9]{12}$", var.account_id)) : true
   validate_region             = local.create_github_actions_policies ? length(var.region) > 0 : true
 
-  # Policy tags map (reusable tag merging pattern)
-  policy_tags = {
-    state-access      = merge(var.tags, { Name = "${var.policy_name_prefix}-state-access" })
-    resource-creation = merge(var.tags, { Name = "${var.policy_name_prefix}-resource-creation" })
-    plan              = merge(var.tags, { Name = "${var.policy_name_prefix}-plan" })
-    apply             = merge(var.tags, { Name = "${var.policy_name_prefix}-apply" })
-  }
+  # Secrets Manager resource pattern - use /practice/* pattern for better least privilege
+  secrets_manager_resources = var.project_name != "" ? [
+    "arn:aws:secretsmanager:${var.region}:${var.account_id}:secret:${var.project_name}-*",
+    "arn:aws:secretsmanager:${var.region}:${var.account_id}:secret:/practice/*"
+  ] : [
+    "arn:aws:secretsmanager:${var.region}:${var.account_id}:secret:/practice/*"
+  ]
 }
 
 # ============================================================================
-# Policy Documents - GitHub Actions Policies
+# Policy Documents - Terraform Plan Policy (read-only + state access)
 # ============================================================================
 
-# Data source for Terraform State Access Policy
-data "aws_iam_policy_document" "terraform_state_access" {
+data "aws_iam_policy_document" "terraform_plan" {
   # S3 bucket access for Terraform state
   statement {
     sid    = "S3StateAccess"
@@ -63,10 +62,136 @@ data "aws_iam_policy_document" "terraform_state_access" {
       var.dynamodb_table_arn
     ]
   }
+
+  # Read-only resource permissions
+  statement {
+    sid    = "ReadOnlyResourceAccess"
+    effect = "Allow"
+
+    actions = [
+      # Lambda permissions
+      "lambda:GetFunction",
+      "lambda:ListFunctions",
+      "lambda:GetPolicy",
+      "lambda:ListAliases",
+      "lambda:ListTags",
+
+      # API Gateway v2 permissions
+      "apigatewayv2:GetApi",
+      "apigatewayv2:GetStage",
+      "apigatewayv2:GetDomainName",
+      "apigatewayv2:GetIntegration",
+      "apigatewayv2:GetRoute",
+
+      # SQS permissions
+      "sqs:GetQueueAttributes",
+      "sqs:GetQueueUrl",
+      "sqs:ListQueues",
+      "sqs:ListQueueTags",
+
+      # EventBridge Scheduler permissions
+      "scheduler:GetSchedule",
+      "scheduler:ListSchedules",
+      "scheduler:ListTagsForResource",
+
+      # DynamoDB permissions
+      "dynamodb:DescribeTable",
+      "dynamodb:ListTables",
+      "dynamodb:ListTagsOfResource",
+
+      # Route53 permissions
+      "route53:GetHostedZone",
+      "route53:ListHostedZones",
+      "route53:ListResourceRecordSets",
+
+      # ACM permissions
+      "acm:DescribeCertificate",
+      "acm:ListCertificates",
+      "acm:ListTagsForCertificate",
+
+      # Secrets Manager permissions (read-only)
+      "secretsmanager:DescribeSecret",
+      "secretsmanager:ListSecrets",
+
+      # KMS permissions
+      "kms:DescribeKey",
+      "kms:ListKeys",
+      "kms:ListAliases",
+
+      # CloudWatch Logs permissions
+      "logs:DescribeLogGroups",
+
+      # IAM permissions (read-only)
+      "iam:GetRole",
+      "iam:ListRoles",
+      "iam:GetPolicy",
+      "iam:ListPolicies",
+      "iam:ListAttachedRolePolicies",
+      "iam:ListRolePolicies",
+      "iam:GetRolePolicy",
+      "iam:ListPolicyTags",
+      "iam:ListRoleTags"
+    ]
+
+    resources = [
+      "arn:aws:lambda:${var.region}:${var.account_id}:function:*",
+      "arn:aws:apigateway:${var.region}::/*",
+      "arn:aws:sqs:${var.region}:${var.account_id}:*",
+      "arn:aws:scheduler:${var.region}:${var.account_id}:schedule/*",
+      "arn:aws:dynamodb:${var.region}:${var.account_id}:table/*",
+      "arn:aws:route53:::hostedzone/*",
+      "arn:aws:route53:::change/*",
+      "arn:aws:acm:${var.region}:${var.account_id}:certificate/*",
+      "arn:aws:acm:us-east-1:${var.account_id}:certificate/*",
+      "arn:aws:secretsmanager:${var.region}:${var.account_id}:secret:*",
+      "arn:aws:kms:${var.region}:${var.account_id}:key/*",
+      "arn:aws:kms:${var.region}:${var.account_id}:alias/*",
+      "arn:aws:logs:${var.region}:${var.account_id}:log-group:*",
+      "arn:aws:iam::${var.account_id}:role/*",
+      "arn:aws:iam::${var.account_id}:policy/*"
+    ]
+  }
 }
 
-# Data source for Terraform Resource Creation Policy
-data "aws_iam_policy_document" "terraform_resource_creation" {
+# ============================================================================
+# Policy Documents - Terraform Apply Policy (full access + state access)
+# ============================================================================
+
+data "aws_iam_policy_document" "terraform_apply" {
+  # S3 bucket access for Terraform state
+  statement {
+    sid    = "S3StateAccess"
+    effect = "Allow"
+
+    actions = [
+      "s3:GetObject",
+      "s3:PutObject",
+      "s3:ListBucket"
+    ]
+
+    resources = [
+      var.state_bucket_arn,
+      "${var.state_bucket_arn}/*"
+    ]
+  }
+
+  # DynamoDB table access for state locking
+  statement {
+    sid    = "DynamoDBStateLock"
+    effect = "Allow"
+
+    actions = [
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:DeleteItem",
+      "dynamodb:DescribeTable"
+    ]
+
+    resources = [
+      var.dynamodb_table_arn
+    ]
+  }
+
   # Lambda permissions
   statement {
     sid    = "LambdaPermissions"
@@ -263,7 +388,7 @@ data "aws_iam_policy_document" "terraform_resource_creation" {
     ]
   }
 
-  # Secrets Manager permissions
+  # Secrets Manager permissions (improved least privilege)
   statement {
     sid    = "SecretsManagerPermissions"
     effect = "Allow"
@@ -280,18 +405,14 @@ data "aws_iam_policy_document" "terraform_resource_creation" {
       "secretsmanager:UntagResource"
     ]
 
-    resources = var.project_name != "" ? [
-      "arn:aws:secretsmanager:${var.region}:${var.account_id}:secret:${var.project_name}-*"
-      ] : [
-      "arn:aws:secretsmanager:${var.region}:${var.account_id}:secret:*"
-    ]
+    resources = local.secrets_manager_resources
 
-    # Optional: Add condition to restrict to secrets with specific tags
-    # condition {
-    #   test     = "StringEquals"
-    #   variable = "aws:ResourceTag/ManagedBy"
-    #   values   = ["Terraform"]
-    # }
+    # Restrict to secrets managed by Terraform
+    condition {
+      test     = "StringEquals"
+      variable = "aws:ResourceTag/ManagedBy"
+      values   = ["Terraform"]
+    }
   }
 
   # KMS permissions (for key management, not key creation)
@@ -341,8 +462,8 @@ data "aws_iam_policy_document" "terraform_resource_creation" {
     ]
   }
 
-  # IAM permissions (limited - for creating service roles and policies)
-  # Note: Broad permissions required for Terraform to manage IAM resources
+  # IAM permissions (for creating service roles and policies)
+  # Restricted to project-managed resources when project_name is provided
   statement {
     sid    = "IAMPermissions"
     effect = "Allow"
@@ -381,15 +502,19 @@ data "aws_iam_policy_document" "terraform_resource_creation" {
       "arn:aws:iam::${var.account_id}:policy/*"
     ]
 
-    # Optional: Restrict to resources with project name prefix
-    # condition {
-    #   test     = "StringLike"
-    #   variable = "iam:ResourceTag/Project"
-    #   values   = [var.project_name]
-    # }
+    # Restrict to project-managed resources when project_name is provided
+    dynamic "condition" {
+      for_each = var.project_name != "" ? [1] : []
+      content {
+        test     = "StringLike"
+        variable = "iam:ResourceTag/Project"
+        values   = [var.project_name]
+      }
+    }
   }
 
   # PassRole permission (required for Lambda, API Gateway, EventBridge Scheduler)
+  # Restricted to roles matching project naming pattern when project_name is provided
   statement {
     sid    = "PassRolePermissions"
     effect = "Allow"
@@ -398,7 +523,9 @@ data "aws_iam_policy_document" "terraform_resource_creation" {
       "iam:PassRole"
     ]
 
-    resources = [
+    resources = var.project_name != "" ? [
+      "arn:aws:iam::${var.account_id}:role/${var.project_name}-*"
+    ] : [
       "arn:aws:iam::${var.account_id}:role/*"
     ]
 
@@ -408,169 +535,15 @@ data "aws_iam_policy_document" "terraform_resource_creation" {
       values = [
         "lambda.amazonaws.com",
         "apigateway.amazonaws.com",
-        "scheduler.amazonaws.com" # Added for EventBridge Scheduler
+        "scheduler.amazonaws.com"
       ]
     }
   }
 }
 
-# Data source for Terraform Plan Policy (read-only resource access)
-data "aws_iam_policy_document" "terraform_plan" {
-  # Include state access
-  source_policy_documents = [
-    data.aws_iam_policy_document.terraform_state_access.json
-  ]
-
-  # Read-only resource permissions
-  statement {
-    sid    = "ReadOnlyResourceAccess"
-    effect = "Allow"
-
-    actions = [
-      # Lambda permissions
-      "lambda:GetFunction",
-      "lambda:ListFunctions",
-      "lambda:GetPolicy",
-      "lambda:ListAliases",
-      "lambda:ListTags",
-
-      # API Gateway v2 permissions
-      "apigatewayv2:GetApi",
-      "apigatewayv2:GetStage",
-      "apigatewayv2:GetDomainName",
-      "apigatewayv2:GetIntegration",
-      "apigatewayv2:GetRoute",
-
-      # SQS permissions
-      "sqs:GetQueueAttributes",
-      "sqs:GetQueueUrl",
-      "sqs:ListQueues",
-      "sqs:ListQueueTags",
-
-      # EventBridge Scheduler permissions
-      "scheduler:GetSchedule",
-      "scheduler:ListSchedules",
-      "scheduler:ListTagsForResource",
-
-      # DynamoDB permissions
-      "dynamodb:DescribeTable",
-      "dynamodb:ListTables",
-      "dynamodb:ListTagsOfResource",
-
-      # Route53 permissions
-      "route53:GetHostedZone",
-      "route53:ListHostedZones",
-      "route53:ListResourceRecordSets",
-
-      # ACM permissions
-      "acm:DescribeCertificate",
-      "acm:ListCertificates",
-      "acm:ListTagsForCertificate",
-
-      # Secrets Manager permissions
-      "secretsmanager:DescribeSecret",
-      "secretsmanager:ListSecrets",
-
-      # KMS permissions
-      "kms:DescribeKey",
-      "kms:ListKeys",
-      "kms:ListAliases",
-
-      # IAM permissions
-      "iam:GetRole",
-      "iam:ListRoles",
-      "iam:GetPolicy",
-      "iam:ListPolicies",
-      "iam:ListAttachedRolePolicies",
-      "iam:ListRolePolicies",
-      "iam:GetRolePolicy",
-      "iam:ListPolicyTags",
-      "iam:ListRoleTags"
-    ]
-
-    resources = [
-      "arn:aws:lambda:${var.region}:${var.account_id}:function:*",
-      "arn:aws:apigateway:${var.region}::/*",
-      "arn:aws:sqs:${var.region}:${var.account_id}:*",
-      "arn:aws:scheduler:${var.region}:${var.account_id}:schedule/*",
-      "arn:aws:dynamodb:${var.region}:${var.account_id}:table/*",
-      "arn:aws:route53:::hostedzone/*",
-      "arn:aws:route53:::change/*",
-      "arn:aws:acm:${var.region}:${var.account_id}:certificate/*",
-      "arn:aws:acm:us-east-1:${var.account_id}:certificate/*",
-      "arn:aws:secretsmanager:${var.region}:${var.account_id}:secret:*",
-      "arn:aws:kms:${var.region}:${var.account_id}:key/*",
-      "arn:aws:kms:${var.region}:${var.account_id}:alias/*",
-      "arn:aws:logs:${var.region}:${var.account_id}:log-group:*",
-      "arn:aws:iam::${var.account_id}:role/*",
-      "arn:aws:iam::${var.account_id}:policy/*"
-    ]
-  }
-}
-
-# Data source for Terraform Apply Policy (full resource access)
-data "aws_iam_policy_document" "terraform_apply" {
-  # Include state access and resource creation permissions
-  source_policy_documents = [
-    data.aws_iam_policy_document.terraform_state_access.json,
-    data.aws_iam_policy_document.terraform_resource_creation.json
-  ]
-}
-
 # ============================================================================
 # IAM Policies - GitHub Actions Policies
 # ============================================================================
-
-resource "aws_iam_policy" "terraform_state_access" {
-  count = local.create_github_actions_policies ? 1 : 0
-
-  name        = "${var.policy_name_prefix}-state-access"
-  description = "Policy for Terraform state bucket and DynamoDB table access"
-  policy      = data.aws_iam_policy_document.terraform_state_access.json
-  tags        = local.policy_tags["state-access"]
-
-  lifecycle {
-    precondition {
-      condition     = local.validate_state_bucket_arn
-      error_message = "State bucket ARN must be a valid S3 bucket ARN format (arn:aws:s3:::bucket-name)."
-    }
-
-    precondition {
-      condition     = local.validate_dynamodb_table_arn
-      error_message = "DynamoDB table ARN must be a valid DynamoDB table ARN format (arn:aws:dynamodb:REGION:ACCOUNT:table/NAME)."
-    }
-
-    precondition {
-      condition     = local.validate_account_id
-      error_message = "Account ID must be a 12-digit number."
-    }
-
-    precondition {
-      condition     = local.validate_region
-      error_message = "Region must be a non-empty string."
-    }
-  }
-}
-
-resource "aws_iam_policy" "terraform_resource_creation" {
-  count = local.create_github_actions_policies ? 1 : 0
-
-  name        = "${var.policy_name_prefix}-resource-creation"
-  description = "Policy for Terraform resource creation (Lambda, API Gateway, DynamoDB, SQS, EventBridge Scheduler, Route53, ACM, Secrets Manager, KMS, CloudWatch Logs, IAM)"
-  policy      = data.aws_iam_policy_document.terraform_resource_creation.json
-  tags        = local.policy_tags["resource-creation"]
-
-  lifecycle {
-    precondition {
-      condition     = local.validate_account_id
-      error_message = "Account ID must be a 12-digit number."
-    }
-    precondition {
-      condition     = local.validate_region
-      error_message = "Region must be a non-empty string."
-    }
-  }
-}
 
 resource "aws_iam_policy" "terraform_plan" {
   count = local.create_github_actions_policies ? 1 : 0
@@ -578,7 +551,7 @@ resource "aws_iam_policy" "terraform_plan" {
   name        = "${var.policy_name_prefix}-plan"
   description = "Policy for Terraform plan operations (read-only resource access + state access)"
   policy      = data.aws_iam_policy_document.terraform_plan.json
-  tags        = local.policy_tags["plan"]
+  tags        = merge(var.tags, { Name = "${var.policy_name_prefix}-plan" })
 
   lifecycle {
     precondition {
@@ -588,6 +561,14 @@ resource "aws_iam_policy" "terraform_plan" {
     precondition {
       condition     = local.validate_dynamodb_table_arn
       error_message = "DynamoDB table ARN must be a valid DynamoDB table ARN format (arn:aws:dynamodb:REGION:ACCOUNT:table/NAME)."
+    }
+    precondition {
+      condition     = local.validate_account_id
+      error_message = "Account ID must be a 12-digit number."
+    }
+    precondition {
+      condition     = local.validate_region
+      error_message = "Region must be a non-empty string."
     }
   }
 }
@@ -598,7 +579,7 @@ resource "aws_iam_policy" "terraform_apply" {
   name        = "${var.policy_name_prefix}-apply"
   description = "Policy for Terraform apply operations (full resource access + state access)"
   policy      = data.aws_iam_policy_document.terraform_apply.json
-  tags        = local.policy_tags["apply"]
+  tags        = merge(var.tags, { Name = "${var.policy_name_prefix}-apply" })
 
   lifecycle {
     precondition {
