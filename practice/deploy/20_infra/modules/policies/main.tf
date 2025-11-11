@@ -16,11 +16,20 @@ locals {
   validate_region             = local.create_github_actions_policies ? length(var.region) > 0 : true
 
   # Secrets Manager resource pattern - use /practice/* pattern for better least privilege
+  # Note: Secrets Manager ARNs have a random 6-character suffix appended to the secret name
+  # The ARN format is: arn:aws:secretsmanager:region:account-id:secret:secret-name-*
+  # For a secret named /practice/dev/backend-bucket, the ARN is:
+  # arn:aws:secretsmanager:region:account-id:secret:/practice/dev/backend-bucket-*
+  # We use wildcard patterns to match all secrets under /practice/{env}/ with any suffix
   secrets_manager_resources = var.project_name != "" ? [
     "arn:aws:secretsmanager:${var.region}:${var.account_id}:secret:${var.project_name}-*",
-    "arn:aws:secretsmanager:${var.region}:${var.account_id}:secret:/practice/*"
+    "arn:aws:secretsmanager:${var.region}:${var.account_id}:secret:/practice/dev/*",
+    "arn:aws:secretsmanager:${var.region}:${var.account_id}:secret:/practice/stage/*",
+    "arn:aws:secretsmanager:${var.region}:${var.account_id}:secret:/practice/prod/*"
   ] : [
-    "arn:aws:secretsmanager:${var.region}:${var.account_id}:secret:/practice/*"
+    "arn:aws:secretsmanager:${var.region}:${var.account_id}:secret:/practice/dev/*",
+    "arn:aws:secretsmanager:${var.region}:${var.account_id}:secret:/practice/stage/*",
+    "arn:aws:secretsmanager:${var.region}:${var.account_id}:secret:/practice/prod/*"
   ]
 }
 
