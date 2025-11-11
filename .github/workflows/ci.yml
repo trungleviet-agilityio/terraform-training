@@ -9,6 +9,7 @@ on:
 permissions:
   id-token: write
   contents: read
+  pull-requests: write
 
 jobs:
   detect-changes:
@@ -107,11 +108,47 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
           role-session-name: GitHubActions-TerraformPlan-${{ github.run_id }}
 
+      - name: Get backend bucket name from Secrets Manager
+        id: backend-config
+        env:
+          ENVIRONMENT: dev
+        run: |
+          SECRET_NAME="/practice/${ENVIRONMENT}/backend-bucket"
+          
+          # Try to retrieve from Secrets Manager
+          if aws secretsmanager describe-secret --secret-id "$SECRET_NAME" &>/dev/null; then
+            echo "Retrieving bucket name from Secrets Manager..."
+            SECRET_VALUE=$(aws secretsmanager get-secret-value \
+              --secret-id "$SECRET_NAME" \
+              --query SecretString --output text)
+            BUCKET_NAME=$(echo "$SECRET_VALUE" | jq -r '.bucket')
+            
+            if [ -n "$BUCKET_NAME" ] && [ "$BUCKET_NAME" != "null" ]; then
+              echo "bucket=$BUCKET_NAME" >> $GITHUB_OUTPUT
+              echo "backend_available=true" >> $GITHUB_OUTPUT
+              echo "Using bucket from Secrets Manager: $BUCKET_NAME"
+            else
+              echo "Failed to parse bucket name from secret"
+              echo "backend_available=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "Secret not found, constructing bucket name from pattern..."
+            # Fallback: construct bucket name from pattern
+            ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+            BUCKET_NAME="tt-practice-tf-state-${ENVIRONMENT}-${ACCOUNT_ID}"
+            echo "bucket=$BUCKET_NAME" >> $GITHUB_OUTPUT
+            echo "backend_available=true" >> $GITHUB_OUTPUT
+            echo "Using constructed bucket name: $BUCKET_NAME"
+          fi
+
       - name: Terraform Init (with backend for plan)
+        if: steps.backend-config.outputs.backend_available == 'true'
         working-directory: practice/deploy/${{ matrix.layer }}/environments/dev
-        run: terraform init -backend-config=backend.tfvars
+        run: |
+          terraform init -backend-config="bucket=${{ steps.backend-config.outputs.bucket }}"
 
       - name: Terraform Plan
+        if: steps.backend-config.outputs.backend_available == 'true'
         id: terraform-plan
         working-directory: practice/deploy/${{ matrix.layer }}/environments/dev
         run: |
@@ -119,7 +156,7 @@ jobs:
         continue-on-error: true
 
       - name: Comment PR with Plan Output
-        if: github.event_name == 'pull_request' && always()
+        if: github.event_name == 'pull_request' && steps.backend-config.outputs.backend_available == 'true' && always()
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
