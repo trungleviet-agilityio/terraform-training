@@ -39,6 +39,8 @@ locals {
 
 data "aws_iam_policy_document" "terraform_plan" {
   # S3 bucket access for Terraform state
+  # Uses GetBucket* wildcard to cover all bucket configuration read operations
+  # Terraform reads all bucket configurations during refresh, even if not explicitly configured
   statement {
     sid    = "S3StateAccess"
     effect = "Allow"
@@ -46,7 +48,8 @@ data "aws_iam_policy_document" "terraform_plan" {
     actions = [
       "s3:GetObject",
       "s3:PutObject",
-      "s3:ListBucket"
+      "s3:ListBucket",
+      "s3:GetBucket*"  # Covers all bucket configuration read operations (GetBucketWebsite, GetBucketCors, etc.)
     ]
 
     resources = [
@@ -64,7 +67,8 @@ data "aws_iam_policy_document" "terraform_plan" {
       "dynamodb:GetItem",
       "dynamodb:PutItem",
       "dynamodb:DeleteItem",
-      "dynamodb:DescribeTable"
+      "dynamodb:DescribeTable",
+      "dynamodb:DescribeTimeToLive"
     ]
 
     resources = [
@@ -111,6 +115,7 @@ data "aws_iam_policy_document" "terraform_plan" {
       "dynamodb:ListTables",
       "dynamodb:ListTagsOfResource",
       "dynamodb:DescribeContinuousBackups",
+      "dynamodb:DescribeTimeToLive",
 
       # Route53 permissions
       "route53:GetHostedZone",
@@ -132,19 +137,7 @@ data "aws_iam_policy_document" "terraform_plan" {
       # CloudWatch permissions
       "cloudwatch:DescribeAlarms",
       "cloudwatch:ListMetrics",
-
-      # IAM permissions (read-only)
-      "iam:GetRole",
-      "iam:ListRoles",
-      "iam:GetPolicy",
-      "iam:ListPolicies",
-      "iam:ListAttachedRolePolicies",
-      "iam:ListRolePolicies",
-      "iam:GetRolePolicy",
-      "iam:ListPolicyTags",
-      "iam:ListRoleTags",
-      "iam:GetOpenIDConnectProvider",
-      "iam:ListOpenIDConnectProviders"
+      "cloudwatch:ListTagsForResource"
     ]
 
     resources = [
@@ -161,6 +154,33 @@ data "aws_iam_policy_document" "terraform_plan" {
     ]
   }
 
+  # IAM permissions (read-only) - separate statement with correct resource ARNs
+  statement {
+    sid    = "IAMReadOnlyPermissions"
+    effect = "Allow"
+
+    actions = [
+      "iam:GetRole",
+      "iam:ListRoles",
+      "iam:GetPolicy",
+      "iam:ListPolicies",
+      "iam:ListAttachedRolePolicies",
+      "iam:ListRolePolicies",
+      "iam:GetRolePolicy",
+      "iam:ListPolicyTags",
+      "iam:ListRoleTags",
+      "iam:GetOpenIDConnectProvider",
+      "iam:ListOpenIDConnectProviders",
+      "iam:GetPolicyVersion"
+    ]
+
+    resources = [
+      "arn:aws:iam::${var.account_id}:role/*",
+      "arn:aws:iam::${var.account_id}:policy/*",
+      "arn:aws:iam::${var.account_id}:oidc-provider/*"
+    ]
+  }
+
   # Secrets Manager permissions (read-only) - separate statement for resource restrictions
   statement {
     sid    = "SecretsManagerReadOnlyPermissions"
@@ -169,7 +189,8 @@ data "aws_iam_policy_document" "terraform_plan" {
     actions = [
       "secretsmanager:DescribeSecret",
       "secretsmanager:ListSecrets",
-      "secretsmanager:GetSecretValue"
+      "secretsmanager:GetSecretValue",
+      "secretsmanager:GetResourcePolicy",
     ]
 
     resources = local.secrets_manager_resources
@@ -209,6 +230,8 @@ data "aws_iam_policy_document" "terraform_plan" {
 
 data "aws_iam_policy_document" "terraform_apply" {
   # S3 bucket access for Terraform state
+  # Uses GetBucket* wildcard to cover all bucket configuration read operations
+  # Terraform reads all bucket configurations during refresh, even if not explicitly configured
   statement {
     sid    = "S3StateAccess"
     effect = "Allow"
@@ -216,7 +239,8 @@ data "aws_iam_policy_document" "terraform_apply" {
     actions = [
       "s3:GetObject",
       "s3:PutObject",
-      "s3:ListBucket"
+      "s3:ListBucket",
+      "s3:GetBucket*"  # Covers all bucket configuration read operations (GetBucketWebsite, GetBucketCors, etc.)
     ]
 
     resources = [
@@ -234,7 +258,8 @@ data "aws_iam_policy_document" "terraform_apply" {
       "dynamodb:GetItem",
       "dynamodb:PutItem",
       "dynamodb:DeleteItem",
-      "dynamodb:DescribeTable"
+      "dynamodb:DescribeTable",
+      "dynamodb:DescribeTimeToLive"
     ]
 
     resources = [
@@ -248,22 +273,7 @@ data "aws_iam_policy_document" "terraform_apply" {
     effect = "Allow"
 
     actions = [
-      "lambda:CreateFunction",
-      "lambda:UpdateFunctionCode",
-      "lambda:UpdateFunctionConfiguration",
-      "lambda:DeleteFunction",
-      "lambda:GetFunction",
-      "lambda:ListFunctions",
-      "lambda:AddPermission",
-      "lambda:RemovePermission",
-      "lambda:GetPolicy",
-      "lambda:CreateAlias",
-      "lambda:UpdateAlias",
-      "lambda:DeleteAlias",
-      "lambda:ListAliases",
-      "lambda:TagResource",
-      "lambda:UntagResource",
-      "lambda:ListTags"
+      "lambda:*"
     ]
 
     resources = [
@@ -277,52 +287,7 @@ data "aws_iam_policy_document" "terraform_apply" {
     effect = "Allow"
 
     actions = [
-      # API Management
-      "apigatewayv2:CreateApi",
-      "apigatewayv2:DeleteApi",
-      "apigatewayv2:GetApi",
-      "apigatewayv2:UpdateApi",
-      "apigatewayv2:ListApis",
-
-      # Stage Management
-      "apigatewayv2:CreateStage",
-      "apigatewayv2:DeleteStage",
-      "apigatewayv2:GetStage",
-      "apigatewayv2:UpdateStage",
-      "apigatewayv2:GetStages",
-
-      # Custom Domain Management
-      "apigatewayv2:CreateDomainName",
-      "apigatewayv2:DeleteDomainName",
-      "apigatewayv2:GetDomainName",
-      "apigatewayv2:UpdateDomainName",
-      "apigatewayv2:GetDomainNames",
-
-      # API Mapping
-      "apigatewayv2:CreateApiMapping",
-      "apigatewayv2:DeleteApiMapping",
-      "apigatewayv2:GetApiMapping",
-      "apigatewayv2:GetApiMappings",
-      "apigatewayv2:UpdateApiMapping",
-
-      # Integration Management
-      "apigatewayv2:CreateIntegration",
-      "apigatewayv2:DeleteIntegration",
-      "apigatewayv2:GetIntegration",
-      "apigatewayv2:UpdateIntegration",
-      "apigatewayv2:GetIntegrations",
-
-      # Route Management
-      "apigatewayv2:CreateRoute",
-      "apigatewayv2:DeleteRoute",
-      "apigatewayv2:GetRoute",
-      "apigatewayv2:UpdateRoute",
-      "apigatewayv2:GetRoutes",
-
-      # Tagging
-      "apigatewayv2:TagResource",
-      "apigatewayv2:UntagResource",
-      "apigatewayv2:GetTags"
+      "apigatewayv2:*"
     ]
 
     resources = [
@@ -343,7 +308,8 @@ data "aws_iam_policy_document" "terraform_apply" {
       "dynamodb:ListTables",
       "dynamodb:TagResource",
       "dynamodb:UntagResource",
-      "dynamodb:ListTagsOfResource"
+      "dynamodb:ListTagsOfResource",
+      "dynamodb:DescribeTimeToLive"
     ]
 
     resources = [
@@ -351,21 +317,13 @@ data "aws_iam_policy_document" "terraform_apply" {
     ]
   }
 
-  # SQS permissions
+  # SQS permissions (consolidated)
   statement {
     sid    = "SQSPermissions"
     effect = "Allow"
 
     actions = [
-      "sqs:CreateQueue",
-      "sqs:DeleteQueue",
-      "sqs:GetQueueAttributes",
-      "sqs:SetQueueAttributes",
-      "sqs:GetQueueUrl",
-      "sqs:ListQueues",
-      "sqs:TagQueue",
-      "sqs:UntagQueue",
-      "sqs:ListQueueTags"
+      "sqs:*"
     ]
 
     resources = [
@@ -379,14 +337,7 @@ data "aws_iam_policy_document" "terraform_apply" {
     effect = "Allow"
 
     actions = [
-      "scheduler:CreateSchedule",
-      "scheduler:DeleteSchedule",
-      "scheduler:GetSchedule",
-      "scheduler:UpdateSchedule",
-      "scheduler:ListSchedules",
-      "scheduler:TagResource",
-      "scheduler:UntagResource",
-      "scheduler:ListTagsForResource"
+      "scheduler:*"
     ]
 
     resources = [
@@ -394,21 +345,13 @@ data "aws_iam_policy_document" "terraform_apply" {
     ]
   }
 
-  # Route53 permissions (for DNS management)
+  # Route53 permissions (for DNS management - consolidated)
   statement {
     sid    = "Route53Permissions"
     effect = "Allow"
 
     actions = [
-      "route53:CreateHostedZone",
-      "route53:DeleteHostedZone",
-      "route53:GetHostedZone",
-      "route53:ListHostedZones",
-      "route53:ChangeResourceRecordSets",
-      "route53:ListResourceRecordSets",
-      "route53:GetChange",
-      "route53:ListTagsForResource",
-      "route53:ChangeTagsForResource"
+      "route53:*"
     ]
 
     resources = [
@@ -417,24 +360,18 @@ data "aws_iam_policy_document" "terraform_apply" {
     ]
   }
 
-  # ACM permissions (for SSL/TLS certificates)
+  # ACM permissions (for SSL/TLS certificates - consolidated)
   statement {
     sid    = "ACMPermissions"
     effect = "Allow"
 
     actions = [
-      "acm:RequestCertificate",
-      "acm:DeleteCertificate",
-      "acm:DescribeCertificate",
-      "acm:ListCertificates",
-      "acm:AddTagsToCertificate",
-      "acm:RemoveTagsFromCertificate",
-      "acm:ListTagsForCertificate"
+      "acm:*"
     ]
 
     resources = [
       "arn:aws:acm:${var.region}:${var.account_id}:certificate/*",
-      "arn:aws:acm:us-east-1:${var.account_id}:certificate/*" # API Gateway requires certs in us-east-1
+      "arn:aws:acm:us-east-1:${var.account_id}:certificate/*"
     ]
   }
 
@@ -493,22 +430,31 @@ data "aws_iam_policy_document" "terraform_apply" {
     ]
   }
 
-  # CloudWatch Logs permissions
+  # CloudWatch Logs permissions (consolidated)
   statement {
     sid    = "CloudWatchLogsPermissions"
     effect = "Allow"
 
     actions = [
-      "logs:CreateLogGroup",
-      "logs:DeleteLogGroup",
-      "logs:DescribeLogGroups",
-      "logs:PutRetentionPolicy",
-      "logs:TagLogGroup",
-      "logs:UntagLogGroup"
+      "logs:*"
     ]
 
     resources = [
       "arn:aws:logs:${var.region}:${var.account_id}:log-group:*"
+    ]
+  }
+
+  # CloudWatch permissions (for alarms)
+  statement {
+    sid    = "CloudWatchPermissions"
+    effect = "Allow"
+
+    actions = [
+      "cloudwatch:*"
+    ]
+
+    resources = [
+      "arn:aws:cloudwatch:${var.region}:${var.account_id}:alarm:*"
     ]
   }
 
