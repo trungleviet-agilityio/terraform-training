@@ -140,6 +140,50 @@ jobs:
           terraform_version: ~> 1.5.0
           terraform_wrapper: false
 
+      - name: Get Terraform variables from Secrets Manager
+        id: terraform-vars
+        env:
+          ENVIRONMENT: ${{ needs.detect-changes.outputs.environment }}
+          LAYER: ${{ matrix.layer }}
+        run: |
+          SECRET_NAME="/practice/${ENVIRONMENT}/${LAYER}/terraform-vars"
+
+          if aws secretsmanager describe-secret --secret-id "$SECRET_NAME" &>/dev/null; then
+            echo "Retrieving Terraform variables from Secrets Manager..."
+            SECRET_VALUE=$(aws secretsmanager get-secret-value \
+              --secret-id "$SECRET_NAME" \
+              --query SecretString --output text)
+
+            # Parse JSON and convert to TF_VAR_* environment variables (lowercase format)
+            # Terraform automatically maps TF_VAR_* environment variables to variable names
+            echo "$SECRET_VALUE" | jq -r 'to_entries[] | "\(.key)|\(.value | tostring)"' | while IFS='|' read -r key value_json; do
+              # Convert key to TF_VAR_* format (lowercase, matching variable name)
+              var_name="TF_VAR_$key"
+
+              # Check value type from original JSON
+              value_type=$(echo "$SECRET_VALUE" | jq -r ".[\"$key\"] | type")
+
+              if [ "$value_type" = "object" ] || [ "$value_type" = "array" ]; then
+                # Complex object/array: convert to compact JSON string
+                var_value=$(echo "$SECRET_VALUE" | jq -c ".[\"$key\"]")
+              else
+                # Simple value: use as-is (jq -r removes quotes for strings)
+                var_value=$(echo "$SECRET_VALUE" | jq -r ".[\"$key\"]")
+              fi
+
+              # Export as environment variable for subsequent steps
+              echo "$var_name=$var_value" >> $GITHUB_ENV
+              echo "Set $var_name"
+            done
+
+            echo "vars_available=true" >> $GITHUB_OUTPUT
+            echo "Successfully loaded Terraform variables from Secrets Manager"
+          else
+            echo "::error::Secret $SECRET_NAME not found. Ensure 10_core layer is deployed and secret exists."
+            echo "vars_available=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
       - name: Get backend bucket name from Secrets Manager
         id: backend-config
         env:
@@ -174,21 +218,24 @@ jobs:
           fi
 
       - name: Terraform Init
-        if: steps.backend-config.outputs.backend_available == 'true'
+        if: steps.backend-config.outputs.backend_available == 'true' && steps.terraform-vars.outputs.vars_available == 'true'
         working-directory: practice/deploy/${{ matrix.layer }}/environments/${{ needs.detect-changes.outputs.environment }}
         run: |
           terraform init -backend-config="bucket=${{ steps.backend-config.outputs.bucket }}"
 
       - name: Terraform Validate
+        if: steps.backend-config.outputs.backend_available == 'true' && steps.terraform-vars.outputs.vars_available == 'true'
         working-directory: practice/deploy/${{ matrix.layer }}/environments/${{ needs.detect-changes.outputs.environment }}
         run: terraform validate
 
       - name: Terraform Plan
+        if: steps.backend-config.outputs.backend_available == 'true' && steps.terraform-vars.outputs.vars_available == 'true'
         working-directory: practice/deploy/${{ matrix.layer }}/environments/${{ needs.detect-changes.outputs.environment }}
         run: |
           terraform plan -no-color -out=tfplan
 
       - name: Terraform Apply
+        if: steps.backend-config.outputs.backend_available == 'true' && steps.terraform-vars.outputs.vars_available == 'true'
         working-directory: practice/deploy/${{ matrix.layer }}/environments/${{ needs.detect-changes.outputs.environment }}
         run: |
           terraform apply -auto-approve tfplan
