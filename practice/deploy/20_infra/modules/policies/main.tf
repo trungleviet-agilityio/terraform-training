@@ -144,6 +144,7 @@ data "aws_iam_policy_document" "terraform_plan" {
 
       # CloudWatch Logs permissions
       "logs:DescribeLogGroups",
+      "logs:ListTagsForResource",
       # CloudWatch permissions
       "cloudwatch:DescribeAlarms",
       "cloudwatch:ListMetrics",
