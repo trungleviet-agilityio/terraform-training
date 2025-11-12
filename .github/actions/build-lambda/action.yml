@@ -1,0 +1,41 @@
+name: Build Lambda Packages
+description: Build and verify Lambda deployment packages
+
+inputs:
+  working-directory:
+    description: 'Working directory for build operations'
+    required: false
+    default: 'practice'
+
+runs:
+  using: composite
+  steps:
+    - name: Cache build artifacts
+      uses: actions/cache@v4
+      with:
+        path: ${{ inputs.working-directory }}/out
+        key: ${{ runner.os }}-lambda-build-${{ hashFiles(format('{0}/src/**/pyproject.toml', inputs.working-directory), format('{0}/src/**/*.py', inputs.working-directory)) }}
+        restore-keys: |
+          ${{ runner.os }}-lambda-build-
+
+    - name: Install shasum
+      shell: bash
+      run: |
+        if ! command -v shasum &> /dev/null; then
+          sudo apt-get update
+          sudo apt-get install -y libdigest-sha-perl
+        fi
+
+    - name: Build Lambda packages
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        chmod +x ./bin/cb
+        ./bin/cb build
+
+    - name: Verify build artifacts
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        chmod +x ./bin/verify-build-artifacts
+        ./bin/verify-build-artifacts .

@@ -98,6 +98,11 @@ data "aws_iam_policy_document" "terraform_plan" {
       "lambda:GetPolicy",
       "lambda:ListAliases",
       "lambda:ListTags",
+      "lambda:GetLayerVersion",
+      "lambda:ListVersionsByFunction",
+      "lambda:GetFunctionCodeSigningConfig",
+      "lambda:GetEventSourceMapping",
+      "lambda:ListEventSourceMappings",
 
       # API Gateway v2 permissions (HTTP API)
       "apigatewayv2:GetApi",
@@ -144,6 +149,7 @@ data "aws_iam_policy_document" "terraform_plan" {
 
       # CloudWatch Logs permissions
       "logs:DescribeLogGroups",
+      "logs:ListTagsForResource",
       # CloudWatch permissions
       "cloudwatch:DescribeAlarms",
       "cloudwatch:ListMetrics",
@@ -152,6 +158,8 @@ data "aws_iam_policy_document" "terraform_plan" {
 
     resources = [
       "arn:aws:lambda:${var.region}:${var.account_id}:function:*",
+      "arn:aws:lambda:${var.region}:${var.account_id}:layer:*:*",
+      "arn:aws:lambda:${var.region}:${var.account_id}:event-source-mapping:*",
       "arn:aws:apigateway:${var.region}::/*",
       "arn:aws:sqs:${var.region}:${var.account_id}:*",
       "arn:aws:scheduler:${var.region}:${var.account_id}:schedule/*",
@@ -282,7 +290,7 @@ data "aws_iam_policy_document" "terraform_apply" {
     resources = [
       var.dynamodb_table_arn
     ]
-  }
+}
 
   # Lambda permissions
   statement {
@@ -294,7 +302,8 @@ data "aws_iam_policy_document" "terraform_apply" {
     ]
 
     resources = [
-      "arn:aws:lambda:${var.region}:${var.account_id}:function:*"
+      "arn:aws:lambda:${var.region}:${var.account_id}:function:*",
+      "arn:aws:lambda:${var.region}:${var.account_id}:layer:*:*"
     ]
   }
 

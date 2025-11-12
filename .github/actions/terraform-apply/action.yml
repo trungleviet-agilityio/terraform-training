@@ -1,0 +1,43 @@
+name: Terraform Apply
+description: Initialize Terraform, validate, plan, and apply infrastructure changes
+
+inputs:
+  layer:
+    description: 'Layer name (10_core, 20_infra, 30_app)'
+    required: true
+  environment:
+    description: 'Environment (dev, stage, prod)'
+    required: true
+  backend-bucket:
+    description: 'S3 backend bucket name'
+    required: true
+  lock-timeout:
+    description: 'Lock timeout duration'
+    required: false
+    default: '60s'
+
+runs:
+  using: composite
+  steps:
+    - name: Terraform Init
+      shell: bash
+      working-directory: practice/deploy/${{ inputs.layer }}/environments/${{ inputs.environment }}
+      run: |
+        terraform init -backend-config="bucket=${{ inputs.backend-bucket }}"
+
+    - name: Terraform Validate
+      shell: bash
+      working-directory: practice/deploy/${{ inputs.layer }}/environments/${{ inputs.environment }}
+      run: terraform validate
+
+    - name: Terraform Plan
+      shell: bash
+      working-directory: practice/deploy/${{ inputs.layer }}/environments/${{ inputs.environment }}
+      run: |
+        terraform plan -no-color -out=tfplan -lock-timeout=${{ inputs.lock-timeout }}
+
+    - name: Terraform Apply
+      shell: bash
+      working-directory: practice/deploy/${{ inputs.layer }}/environments/${{ inputs.environment }}
+      run: |
+        terraform apply -auto-approve tfplan

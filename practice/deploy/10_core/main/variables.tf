@@ -1,3 +1,13 @@
+variable "aws_region" {
+  type        = string
+  description = "The AWS region to deploy resources to"
+
+  validation {
+    condition     = length(var.aws_region) > 0
+    error_message = "AWS region must be a non-empty string."
+  }
+}
+
 variable "project_name" {
   type        = string
   description = "Project name for resource naming."
