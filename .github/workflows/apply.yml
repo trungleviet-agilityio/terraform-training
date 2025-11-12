@@ -118,6 +118,10 @@ jobs:
     name: Apply Terraform - ${{ matrix.layer }} (${{ needs.detect-changes.outputs.environment }})
     needs: detect-changes
     runs-on: ubuntu-latest
+    # IMPORTANT: This workflow uses GitHub Environment secrets
+    # You MUST configure AWS_ROLE_ARN in the GitHub Environment (dev/stage/prod) secrets
+    # Set it to the terraform-apply role ARN (e.g., arn:aws:iam::ACCOUNT:role/tt-practice-dev-terraform-apply)
+    # Repository-level AWS_ROLE_ARN should be set to terraform-plan role ARN (for CI workflow)
     environment: ${{ needs.detect-changes.outputs.environment }}
     strategy:
       fail-fast: false
@@ -127,9 +131,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
+      - name: Configure AWS credentials (for apply)
         uses: aws-actions/configure-aws-credentials@v4
         with:
+          # Use environment-specific secret if available, otherwise fall back to repository secret
+          # IMPORTANT: For apply operations, set AWS_ROLE_ARN in GitHub Environment secrets to terraform-apply role ARN
+          # Repository-level AWS_ROLE_ARN should be set to terraform-plan role ARN (for CI workflow)
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ secrets.AWS_REGION }}
           role-session-name: GitHubActions-TerraformApply-${{ github.run_id }}

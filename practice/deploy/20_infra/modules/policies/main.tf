@@ -299,12 +299,14 @@ data "aws_iam_policy_document" "terraform_apply" {
   }
 
   # API Gateway permissions
+  # Note: apigateway:GET is required for reading v2 APIs (Terraform AWS provider uses v1 APIs internally)
   statement {
     sid    = "APIGatewayPermissions"
     effect = "Allow"
 
     actions = [
-      "apigatewayv2:*"
+      "apigatewayv2:*",
+      "apigateway:GET"  # Required for Terraform to read v2 APIs during refresh
     ]
 
     resources = [
@@ -326,7 +328,8 @@ data "aws_iam_policy_document" "terraform_apply" {
       "dynamodb:TagResource",
       "dynamodb:UntagResource",
       "dynamodb:ListTagsOfResource",
-      "dynamodb:DescribeTimeToLive"
+      "dynamodb:DescribeTimeToLive",
+      "dynamodb:DescribeContinuousBackups"  # Required for Terraform to read table configuration during refresh
     ]
 
     resources = [
@@ -507,23 +510,62 @@ data "aws_iam_policy_document" "terraform_apply" {
       "iam:DeletePolicyVersion",
       "iam:GetPolicyVersion",
       "iam:ListPolicyVersions",
-      "iam:SetDefaultPolicyVersion"
+      "iam:SetDefaultPolicyVersion",
+      "iam:GetOpenIDConnectProvider",      # Required for Terraform to read OIDC provider during refresh
+      "iam:ListOpenIDConnectProviders",    # Required for Terraform to list OIDC providers during refresh
+      "iam:DeleteOpenIDConnectProvider",   # Required for Terraform to delete OIDC provider
+      "iam:ListInstanceProfilesForRole"    # Required for Terraform to check instance profiles before deleting roles
     ]
 
     resources = [
       "arn:aws:iam::${var.account_id}:role/*",
-      "arn:aws:iam::${var.account_id}:policy/*"
+      "arn:aws:iam::${var.account_id}:policy/*",
+      "arn:aws:iam::${var.account_id}:oidc-provider/*"  # Required for OIDC provider read permissions
     ]
 
     # Restrict to project-managed resources when project_name is provided
+    # Allow access if resource has matching Project tag
     dynamic "condition" {
       for_each = var.project_name != "" ? [1] : []
       content {
-        test     = "StringLike"
+        test     = "StringEquals"
         variable = "iam:ResourceTag/Project"
         values   = [var.project_name]
       }
     }
+  }
+
+  # IAM permissions for resources matching project naming pattern (fallback for roles/policies without tags)
+  # This ensures GitHub Actions roles can be managed even if they don't have the Project tag
+  statement {
+    sid    = "IAMPermissionsByNamePattern"
+    effect = "Allow"
+
+    actions = [
+      "iam:AttachRolePolicy",
+      "iam:DetachRolePolicy",
+      "iam:ListAttachedRolePolicies",
+      "iam:PutRolePolicy",
+      "iam:DeleteRolePolicy",
+      "iam:GetRolePolicy",
+      "iam:ListRolePolicies",
+      "iam:TagRole",
+      "iam:UntagRole",
+      "iam:ListRoleTags",
+      "iam:GetRole",
+      "iam:ListRoles",
+      "iam:GetOpenIDConnectProvider",      # Required for OIDC provider read (may not have Project tag)
+      "iam:ListOpenIDConnectProviders",    # Required for OIDC provider list (may not have Project tag)
+      "iam:DeleteOpenIDConnectProvider",   # Required for Terraform to delete OIDC provider
+      "iam:ListInstanceProfilesForRole"    # Required for Terraform to check instance profiles before deleting roles
+    ]
+
+    resources = var.project_name != "" ? [
+      "arn:aws:iam::${var.account_id}:role/${var.project_name}-*",
+      "arn:aws:iam::${var.account_id}:policy/${var.project_name}-*",
+      "arn:aws:iam::${var.account_id}:policy/github-actions-terraform-*",
+      "arn:aws:iam::${var.account_id}:oidc-provider/*"  # OIDC providers don't follow project naming pattern
+    ] : []
   }
 
   # PassRole permission (required for Lambda, API Gateway, EventBridge Scheduler)
