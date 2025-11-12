@@ -8,13 +8,17 @@ GitHub Actions workflows for Terraform validation, planning, and deployment usin
 - **Trigger**: Pull requests
 - **Purpose**: Validate Terraform code and generate plans
 - **Path Filters**: `practice/deploy/**`, `.github/workflows/ci.yml`
+- **Execution Model**: Sequential (10_core → 20_infra → 30_app)
 - **Steps**:
   1. Detect changed layers (10_core, 20_infra, 30_app)
-  2. For each changed layer:
+  2. Validate all changed layers in parallel:
      - `terraform fmt -check`
-     - `terraform validate`
+     - `terraform validate` (no backend)
+  3. Plan changed layers sequentially:
+     - Setup Terraform, AWS credentials, and retrieve secrets
+     - Build Lambda packages (30_app only)
      - `terraform plan` (against dev environment)
-  3. Post plan output as PR comment
+  4. Post plan output as PR comment
 - **Working Directory**: `practice/deploy/<layer>/environments/dev/`
 - **AWS Credentials**: OIDC authentication with `terraform-plan` role
 
@@ -24,9 +28,12 @@ GitHub Actions workflows for Terraform validation, planning, and deployment usin
   - Manual workflow dispatch
 - **Purpose**: Apply Terraform changes
 - **Path Filters**: `practice/deploy/**`, `.github/workflows/apply.yml`
+- **Execution Model**: Sequential (10_core → 20_infra → 30_app)
 - **Steps**:
   1. Detect changed layers and determine environment (default: dev)
-  2. For each changed layer:
+  2. Apply changed layers sequentially:
+     - Setup Terraform, AWS credentials, and retrieve secrets
+     - Build Lambda packages (30_app only)
      - `terraform init`
      - `terraform validate`
      - `terraform plan`
@@ -34,6 +41,30 @@ GitHub Actions workflows for Terraform validation, planning, and deployment usin
 - **Working Directory**: `practice/deploy/<layer>/environments/<env>/`
 - **AWS Credentials**: OIDC authentication with `terraform-apply` role
 - **Protection**: GitHub Environments for manual approval on stage/prod
+
+### Composite Actions
+
+Workflows leverage reusable composite actions for better maintainability:
+
+**Setup Actions**:
+- `.github/actions/setup-terraform`: Terraform setup, provider caching, AWS OIDC auth
+- `.github/actions/setup-python-build`: Python and UV setup with caching (30_app only)
+
+**Configuration Actions**:
+- `.github/actions/get-terraform-secrets`: Retrieve variables and backend config from Secrets Manager
+
+**Build Actions**:
+- `.github/actions/build-lambda`: Build and verify Lambda packages (30_app only)
+
+**Terraform Actions**:
+- `.github/actions/terraform-plan`: Init, validate, and plan
+- `.github/actions/terraform-apply`: Init, validate, plan, and apply
+
+**Benefits**:
+- DRY principle: Define once, use across all layers
+- Consistency: Identical setup for all jobs
+- Maintainability: Update logic in one place
+- Readability: High-level orchestration in main workflows
 
 ## Configuration
 
