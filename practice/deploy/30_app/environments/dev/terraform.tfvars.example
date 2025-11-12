@@ -1,10 +1,33 @@
 # Core Configuration
-aws_region   = "ap-southeast-1"
-project_name = "tt-practice"
-environment  = "dev"
+# ===================
+# These variables can be set via:
+#   1. TF_VAR_* environment variables (recommended for local development)
+#   2. AWS Secrets Manager (/practice/{env}/terraform-vars-30_app) for CI/CD
+#   3. This terraform.tfvars file (local development only, gitignored)
+#
+# Variables have defaults in variables.tf. Override them here or via environment variables.
+# For local development, copy this file to terraform.tfvars and set your values.
+
+# Uncomment and set your values, or use TF_VAR_* environment variables:
+# aws_region   = "your-aws-region"      # e.g., "ap-southeast-1" (or set TF_VAR_aws_region)
+# project_name = "your-project-name"    # e.g., "tt-practice" (or set TF_VAR_project_name)
+# environment  = "your-environment"     # e.g., "dev", "stage", "prod" (or set TF_VAR_environment)
 
 # Optional: Deployment mode for Lambda functions
-# deploy_mode = "zip"  # Options: "zip" (default) or "container"
+# Can be set via TF_VAR_deploy_mode environment variable
+# Options: "zip" (default) or "container"
+# Uncomment to override:
+# deploy_mode = "zip"
+
+# Optional: EventBridge Schedule Expression
+# Can be set via TF_VAR_eventbridge_schedule_expression environment variable
+# Examples:
+#   - "rate(5 minutes)"  - Every 5 minutes
+#   - "rate(1 hour)"     - Every hour
+#   - "cron(0 12 * * ? *)" - Daily at 12:00 PM UTC
+#   - "" (empty) - Skip EventBridge schedule creation
+# Uncomment to override:
+# eventbridge_schedule_expression = "rate(5 minutes)"
 
 # Backend Configuration
 # =====================

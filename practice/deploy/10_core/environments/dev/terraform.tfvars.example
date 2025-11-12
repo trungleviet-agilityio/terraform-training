@@ -1,13 +1,24 @@
 # Core Configuration
-# These are the only required variables for 10_core layer
-aws_region   = "ap-southeast-1"
-project_name = "tt-practice"
-environment  = "dev"
+# ===================
+# These variables can be set via:
+#   1. TF_VAR_* environment variables (recommended for local development)
+#   2. AWS Secrets Manager (/practice/{env}/terraform-vars-10_core) for CI/CD
+#   3. This terraform.tfvars file (local development only, gitignored)
+#
+# Variables have defaults in variables.tf. Override them here or via environment variables.
+# For local development, copy this file to terraform.tfvars and set your values.
+
+# Uncomment and set your values, or use TF_VAR_* environment variables:
+# aws_region   = "your-aws-region"      # e.g., "ap-southeast-1" (or set TF_VAR_aws_region)
+# project_name = "your-project-name"    # e.g., "tt-practice" (or set TF_VAR_project_name)
+# environment  = "your-environment"     # e.g., "dev", "stage", "prod" (or set TF_VAR_environment)
 
 # Optional: DNS Configuration (Route53)
 # Leave domain_name empty to skip DNS setup
+# Values can be set via TF_VAR_dns_config environment variable (JSON string)
+# or override here:
 # dns_config = {
-#   domain_name = "example.com"  # Creates hosted zone for dev.example.com
+#   domain_name = ""  # Set your domain name here
 #   # Optional fields (use defaults if not specified):
 #   # api_gateway_endpoint = ""
 #   # api_gateway_zone_id  = ""
@@ -18,6 +29,6 @@ environment  = "dev"
 
 # Optional: Certificate Region Configuration
 # Set to true to create ACM certificate in us-east-1 (required for API Gateway custom domains)
-# Set to false (default) to create certificate in default provider region (ap-southeast-1)
+# Set to false (default) to create certificate in default provider region
+# Can be set via TF_VAR_use_us_east_1_certificate environment variable
 # use_us_east_1_certificate = false
-

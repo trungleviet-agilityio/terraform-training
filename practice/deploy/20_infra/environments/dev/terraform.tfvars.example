@@ -1,19 +1,32 @@
 # Core Configuration
-aws_region   = "ap-southeast-1"
-project_name = "tt-practice"
-environment  = "dev"
+# ===================
+# These variables can be set via:
+#   1. TF_VAR_* environment variables (recommended for local development)
+#   2. AWS Secrets Manager (/practice/{env}/terraform-vars-20_infra) for CI/CD
+#   3. This terraform.tfvars file (local development only, gitignored)
+#
+# Variables have defaults in variables.tf. Override them here or via environment variables.
+# For local development, copy this file to terraform.tfvars and set your values.
+
+# Uncomment and set your values, or use TF_VAR_* environment variables:
+# aws_region   = "your-aws-region"      # e.g., "ap-southeast-1" (or set TF_VAR_aws_region)
+# project_name = "your-project-name"    # e.g., "tt-practice" (or set TF_VAR_project_name)
+# environment  = "your-environment"     # e.g., "dev", "stage", "prod" (or set TF_VAR_environment)
 
 # GitHub OIDC Configuration (grouped)
+# ===================================
 # Configure these to enable GitHub Actions authentication via OIDC
-github_oidc_config = {
-  organization      = "your-github-org"
-  repository        = "terraform-training"
-  create_oidc       = false
-  create_policies   = false
-  create_plan_role  = false
-  create_apply_role = false
-  # allowed_branches  = ["main", "develop"]  # Optional: Restrict to specific branches
-}
+# Can be set via TF_VAR_github_oidc_config environment variable (JSON string)
+# or uncomment and configure here:
+# github_oidc_config = {
+#   organization      = "your-github-org"      # Set your GitHub organization
+#   repository        = "your-repository"      # Set your repository name
+#   create_oidc       = true                   # Set to true to create OIDC provider
+#   create_policies   = true                   # Set to true to create Terraform policies
+#   create_plan_role  = true                   # Set to true to create plan role
+#   create_apply_role = true                   # Set to true to create apply role
+#   # allowed_branches  = ["main", "develop"]  # Optional: Restrict to specific branches
+# }
 
 # Backend Configuration
 # =====================
@@ -49,9 +62,11 @@ github_oidc_config = {
 
 # Optional: DynamoDB Tables Configuration
 # ========================================
-# Uncomment and configure tables as needed for your application
-# See modules/dynamodb/README.md for detailed configuration options
+# Configure tables as needed for your application
+# Can be set via TF_VAR_dynamodb_tables environment variable (JSON string)
+# or uncomment and configure here. See modules/dynamodb/README.md for detailed configuration options
 #
+# Uses default from variables.tf if not specified. Uncomment to override:
 # dynamodb_tables = {
 #   # Example: Key-value table for user data
 #   "user-data" = {
