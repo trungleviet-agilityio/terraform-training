@@ -1,0 +1,47 @@
+#!/bin/bash
+set -euo pipefail
+
+# Terraform validation without backend
+# Removes backend block temporarily, validates, then restores
+
+PROVIDERS_FILE="${1:-providers.tf}"
+
+if [ ! -f "$PROVIDERS_FILE" ]; then
+  echo "Error: $PROVIDERS_FILE not found"
+  exit 1
+fi
+
+# Backup providers.tf
+cp "$PROVIDERS_FILE" "${PROVIDERS_FILE}.backup"
+
+# Remove backend block using awk
+awk '
+  /backend "s3" {/ {
+    in_backend = 1
+    brace_count = 1
+    next
+  }
+  in_backend {
+    brace_count += gsub(/{/, "&")
+    brace_count -= gsub(/}/, "&")
+    if (brace_count == 0) {
+      in_backend = 0
+    }
+    next
+  }
+  { print }
+' "${PROVIDERS_FILE}.backup" > "$PROVIDERS_FILE"
+
+# Verify backend was removed
+if grep -q 'backend "s3"' "$PROVIDERS_FILE"; then
+  echo "Warning: Backend block may not have been fully removed"
+fi
+
+# Run validation
+terraform init -backend=false -input=false
+terraform validate
+
+# Restore providers.tf
+mv "${PROVIDERS_FILE}.backup" "$PROVIDERS_FILE"
+
+echo "✓ Validation completed successfully"
