@@ -239,7 +239,8 @@ jobs:
         if: steps.backend-config.outputs.backend_available == 'true' && steps.terraform-vars.outputs.vars_available == 'true'
         working-directory: practice/deploy/${{ matrix.layer }}/environments/${{ needs.detect-changes.outputs.environment }}
         run: |
-          terraform plan -no-color -out=tfplan
+          # Use -lock-timeout to wait for locks from concurrent operations
+          terraform plan -no-color -out=tfplan -lock-timeout=60s
 
       - name: Terraform Apply
         if: steps.backend-config.outputs.backend_available == 'true' && steps.terraform-vars.outputs.vars_available == 'true'

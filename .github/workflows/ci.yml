@@ -196,7 +196,10 @@ jobs:
         id: terraform-plan
         working-directory: practice/deploy/${{ matrix.layer }}/environments/dev
         run: |
-          terraform plan -no-color -out=tfplan | tee plan_output.txt
+          # Use -lock-timeout to wait for locks, but don't use -out=tfplan to avoid write lock conflicts
+          # For CI, we only need the plan output for PR comments, not a saved plan file
+          terraform plan -no-color -lock-timeout=30s > plan_output.txt 2>&1 || true
+          cat plan_output.txt
         continue-on-error: true
 
       - name: Comment PR with Plan Output
