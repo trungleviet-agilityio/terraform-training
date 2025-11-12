@@ -35,10 +35,16 @@ awk '
 # Verify backend was removed
 if grep -q 'backend "s3"' "$PROVIDERS_FILE"; then
   echo "Warning: Backend block may not have been fully removed"
+  cat "$PROVIDERS_FILE"
+  mv "${PROVIDERS_FILE}.backup" "$PROVIDERS_FILE"
+  exit 1
 fi
 
+# Remove any cached Terraform configuration
+rm -rf .terraform .terraform.lock.hcl 2>/dev/null || true
+
 # Run validation
-terraform init -backend=false -input=false
+terraform init -backend=false -input=false -reconfigure
 terraform validate
 
 # Restore providers.tf
