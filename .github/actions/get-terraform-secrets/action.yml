@@ -1,0 +1,85 @@
+name: Get Terraform Secrets
+description: Retrieve Terraform variables and backend configuration from AWS Secrets Manager
+
+inputs:
+  layer:
+    description: 'Layer name (10_core, 20_infra, 30_app)'
+    required: true
+  environment:
+    description: 'Environment (dev, stage, prod)'
+    required: true
+
+outputs:
+  vars_available:
+    description: 'Whether Terraform variables were successfully retrieved'
+    value: ${{ steps.terraform-vars.outputs.vars_available }}
+  backend_available:
+    description: 'Whether backend configuration is available'
+    value: ${{ steps.backend-config.outputs.backend_available }}
+  backend_bucket:
+    description: 'S3 backend bucket name'
+    value: ${{ steps.backend-config.outputs.bucket }}
+
+runs:
+  using: composite
+  steps:
+    - name: Get Terraform variables from Secrets Manager
+      id: terraform-vars
+      shell: bash
+      env:
+        ENVIRONMENT: ${{ inputs.environment }}
+        LAYER: ${{ inputs.layer }}
+      run: |
+        SECRET_NAME="/practice/${ENVIRONMENT}/${LAYER}/terraform-vars"
+
+        if aws secretsmanager describe-secret --secret-id "$SECRET_NAME" &>/dev/null; then
+          SECRET_VALUE=$(aws secretsmanager get-secret-value \
+            --secret-id "$SECRET_NAME" \
+            --query SecretString --output text)
+
+          echo "$SECRET_VALUE" | jq -r 'to_entries[] | "\(.key)|\(.value | tostring)"' | while IFS='|' read -r key value_json; do
+            var_name="TF_VAR_$key"
+            value_type=$(echo "$SECRET_VALUE" | jq -r ".[\"$key\"] | type")
+
+            if [ "$value_type" = "object" ] || [ "$value_type" = "array" ]; then
+              var_value=$(echo "$SECRET_VALUE" | jq -c ".[\"$key\"]")
+            else
+              var_value=$(echo "$SECRET_VALUE" | jq -r ".[\"$key\"]")
+            fi
+
+            echo "$var_name=$var_value" >> $GITHUB_ENV
+          done
+
+          echo "vars_available=true" >> $GITHUB_OUTPUT
+        else
+          echo "::error::Secret $SECRET_NAME not found. Ensure 10_core layer is deployed and secret exists."
+          echo "vars_available=false" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+
+    - name: Get backend bucket name from Secrets Manager
+      id: backend-config
+      shell: bash
+      env:
+        ENVIRONMENT: ${{ inputs.environment }}
+      run: |
+        SECRET_NAME="/practice/${ENVIRONMENT}/backend-bucket"
+
+        if aws secretsmanager describe-secret --secret-id "$SECRET_NAME" &>/dev/null; then
+          SECRET_VALUE=$(aws secretsmanager get-secret-value \
+            --secret-id "$SECRET_NAME" \
+            --query SecretString --output text)
+          BUCKET_NAME=$(echo "$SECRET_VALUE" | jq -r '.bucket')
+
+          if [ -n "$BUCKET_NAME" ] && [ "$BUCKET_NAME" != "null" ]; then
+            echo "bucket=$BUCKET_NAME" >> $GITHUB_OUTPUT
+            echo "backend_available=true" >> $GITHUB_OUTPUT
+          else
+            echo "backend_available=false" >> $GITHUB_OUTPUT
+          fi
+        else
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          BUCKET_NAME="tt-practice-tf-state-${ENVIRONMENT}-${ACCOUNT_ID}"
+          echo "bucket=$BUCKET_NAME" >> $GITHUB_OUTPUT
+          echo "backend_available=true" >> $GITHUB_OUTPUT
+        fi
