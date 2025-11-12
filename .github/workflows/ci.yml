@@ -126,7 +126,11 @@ jobs:
 
       - name: Terraform Init (No Backend)
         working-directory: practice/deploy/${{ matrix.layer }}/environments/dev
-        run: terraform init -backend=false
+        run: |
+          terraform init -backend=false -input=false || {
+            echo "::warning::Terraform init with -backend=false failed, trying without backend validation"
+            terraform init -backend=false -reconfigure -input=false
+          }
 
       - name: Terraform Validate
         working-directory: practice/deploy/${{ matrix.layer }}/environments/dev
