@@ -99,11 +99,10 @@ See individual module README files for detailed usage and examples.
 2. **Remote State**: S3 bucket and DynamoDB table will be created via Terraform modules in `10_core/modules/` (to be implemented)
 
 3. **Backend Configuration**: 
-   - Each environment has a `providers.tf` file with static backend configuration
-   - Backend bucket name is stored in AWS Secrets Manager: `/practice/{env}/backend-bucket`
-   - Secret is created automatically when `10_core` layer is deployed
-   - For local development, use `backend.tfvars` (gitignored) or retrieve from Secrets Manager
-   - CI/CD workflows automatically retrieve bucket name from Secrets Manager
+   - Backend bucket name stored in AWS Secrets Manager: `/practice/{env}/backend-bucket`
+   - Created automatically by `10_core` layer
+   - Local: Use `backend.tfvars` (gitignored) or retrieve from Secrets Manager
+   - CI/CD: Automatically retrieves from Secrets Manager
 
 ### Deployment Steps
 
@@ -225,6 +224,11 @@ Each environment requires:
 - `variables.tf`: Variable definitions (shared across environments)
 - `main.tf`: Module instantiation
 - `outputs.tf`: Environment outputs
+
+**Variable Management**:
+- **Local**: Use `.env` file with `TF_VAR_*` variables (lowercase format, matching variable names, e.g., `TF_VAR_aws_region`)
+- **CI/CD**: Reads from AWS Secrets Manager (`/practice/{env}/terraform-vars-{layer}`)
+- **Consistency**: `10_core` layer creates secrets from same variables used locally
 
 ## Backend Configuration
 
