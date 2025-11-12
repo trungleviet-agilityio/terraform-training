@@ -5,7 +5,7 @@ This module creates AWS Secrets Manager secrets with standardized naming convent
 ## Resources Created
 
 - **AWS Secrets Manager Secret**: Container for secret metadata
-  - Uses naming convention: `/practice/<environment>/<secret-name>`
+  - Uses naming convention: `/practice/<environment>/<layer>/<secret-name>` (when layer is provided) or `/practice/<environment>/<secret-name>` (when layer is null)
   - Optional KMS encryption
   - Tags applied
 
@@ -16,13 +16,18 @@ This module creates AWS Secrets Manager secrets with standardized naming convent
 ## Usage
 
 ```hcl
-module "api_key_secret" {
-  source = "../modules/secret"
+# Layer-specific secret (organized by layer, matches folder structure)
+module "terraform_vars" {
+  source = "../modules/secrets"
 
-  secret_name  = "api-key"
-  description  = "API key for external service"
+  secret_name  = "terraform-vars"
+  layer        = "10_core"  # Optional: organize by layer (10_core, 20_infra, 30_app)
+  description  = "Terraform variables for 10_core layer"
   environment  = "dev"
-  secret_string = null  # Set via AWS Console or CI/CD after creation
+  secret_string = jsonencode({
+    aws_region = "ap-southeast-1"
+    project_name = "tt-practice"
+  })
   
   tags = {
     Environment = "dev"
@@ -31,15 +36,17 @@ module "api_key_secret" {
   }
 }
 
-# With KMS encryption
-module "database_password_secret" {
-  source = "../modules/secret"
+# Environment-level secret (no layer, for shared secrets)
+module "backend_bucket_secret" {
+  source = "../modules/secrets"
 
-  secret_name  = "database-password"
-  description  = "Database connection password"
+  secret_name  = "backend-bucket"
+  # layer = null  # Optional: omit for environment-level secrets
+  description  = "Terraform state backend bucket name"
   environment  = "dev"
-  kms_key_id   = module.kms.kms_key_arn  # Optional KMS key
-  secret_string = null  # Set via AWS Console or CI/CD
+  secret_string = jsonencode({
+    bucket = "my-state-bucket"
+  })
   
   tags = local.common_tags
 }
@@ -48,19 +55,32 @@ module "database_password_secret" {
 ## Outputs
 
 - `secret_arn`: ARN of the secret (for Lambda environment variables)
-- `secret_name`: Full name of the secret (`/practice/<environment>/<secret-name>`)
+- `secret_name`: Full name of the secret (`/practice/<environment>/<layer>/<secret-name>` or `/practice/<environment>/<secret-name>`)
 - `secret_id`: ID of the secret resource
 - `secret_version_id`: Version ID of the secret version (if created)
 
 ## Naming Convention
 
-- Format: `/practice/<environment>/<secret-name>`
+- Format: `/practice/<environment>/<layer>/<secret-name>` (when layer is provided)
+- Format: `/practice/<environment>/<secret-name>` (when layer is null, for environment-level secrets)
 - Examples:
-  - `/practice/dev/api-key`
-  - `/practice/prod/database-password`
-  - `/practice/stage/oauth-token`
+  - `/practice/dev/10_core/terraform-vars` (layer-specific)
+  - `/practice/dev/20_infra/terraform-vars` (layer-specific)
+  - `/practice/dev/backend-bucket` (environment-level, no layer)
+  - `/practice/prod/30_app/terraform-vars` (layer-specific)
 
-Uses forward slash prefix for AWS Secrets Manager hierarchical structure, enabling organized secret management.
+Uses forward slash prefix for AWS Secrets Manager hierarchical naming convention, matching the folder structure (`practice/deploy/{layer}/environments/{env}/`).
+
+**Note:** AWS Secrets Manager does not create actual folders. The forward slashes are part of the secret name for logical organization. The console displays secrets in a flat list, but the hierarchical naming helps with:
+- **Filtering/Searching**: Use the search bar with prefix filters like `/practice/dev/` to find environment-specific secrets
+- **IAM Policies**: Organize access control by path patterns (e.g., `/practice/dev/*`)
+- **Logical Grouping**: Clear naming convention that matches your infrastructure structure
+
+**Viewing Secrets in AWS Console:**
+- All secrets appear in a flat list view
+- Use the search/filter bar with prefix: `/practice/dev/` to filter dev environment secrets
+- Use `/practice/dev/20_infra/` to filter specific layer secrets
+- The hierarchical naming makes it easy to identify and manage secrets by environment and layer
 
 ## Security Best Practices
 

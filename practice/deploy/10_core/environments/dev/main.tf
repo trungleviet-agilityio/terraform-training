@@ -8,6 +8,7 @@ module "main" {
     aws.us_east_1 = aws.us_east_1
   }
 
+  aws_region                = var.aws_region
   project_name              = var.project_name
   environment               = var.environment
   dns_config                = var.dns_config

@@ -5,7 +5,7 @@ output "secret_arn" {
 
 output "secret_name" {
   value       = aws_secretsmanager_secret.this.name
-  description = "Full name of the secret (/practice/<environment>/<secret-name>)."
+  description = "Full name of the secret (/practice/<environment>/<layer>/<secret-name> or /practice/<environment>/<secret-name>)."
 }
 
 output "secret_id" {

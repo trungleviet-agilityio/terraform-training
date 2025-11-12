@@ -1,8 +1,16 @@
 # Secret Module
 # Creates AWS Secrets Manager secrets with standardized naming convention
 
+locals {
+  # Build secret path: /practice/{env}/{layer}/{secret_name} or /practice/{env}/{secret_name}
+  secret_path = var.layer != null ? "/practice/${var.environment}/${var.layer}/${var.secret_name}" : "/practice/${var.environment}/${var.secret_name}"
+
+  # Maximum secret name length based on whether layer is provided
+  max_length = var.layer != null ? 200 : 256
+}
+
 resource "aws_secretsmanager_secret" "this" {
-  name        = "/practice/${var.environment}/${var.secret_name}"
+  name        = local.secret_path
   description = var.description
 
   kms_key_id = var.kms_key_id
@@ -16,15 +24,15 @@ resource "aws_secretsmanager_secret" "this" {
 
   lifecycle {
     precondition {
-      # Validate secret name format: must not contain slashes (environment is separate)
+      # Validate secret name format: must not contain slashes (environment and layer are separate)
       condition     = !can(regex("/", var.secret_name))
-      error_message = "Secret name must not contain forward slashes. The full path will be /practice/<environment>/<secret-name>."
+      error_message = "Secret name must not contain forward slashes. The full path will be /practice/<environment>/<layer>/<secret-name> or /practice/<environment>/<secret-name>."
     }
     precondition {
       # Validate secret name length (AWS Secrets Manager limit is 512 chars for full path)
-      # We reserve space for /practice/<environment>/ prefix (typically ~20 chars)
-      condition     = length(var.secret_name) > 0 && length(var.secret_name) <= 256
-      error_message = "Secret name must be between 1 and 256 characters."
+      # Reserve space for /practice/<environment>/<layer>/ prefix
+      condition     = length(var.secret_name) > 0 && length(var.secret_name) <= local.max_length
+      error_message = "Secret name must be between 1 and ${local.max_length} characters."
     }
     precondition {
       # Validate secret name contains only valid characters

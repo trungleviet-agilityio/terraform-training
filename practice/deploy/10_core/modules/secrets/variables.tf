@@ -1,10 +1,21 @@
 variable "secret_name" {
   type        = string
-  description = "Name of the secret (without the /practice/<environment>/ prefix)."
+  description = "Name of the secret (without the /practice/<environment>/<layer>/ prefix)."
 
   validation {
     condition     = length(var.secret_name) > 0
     error_message = "secret_name must be a non-empty string."
+  }
+}
+
+variable "layer" {
+  type        = string
+  description = "Layer name (10_core, 20_infra, 30_app). Optional - if not provided, secret is created at environment level."
+  default     = null
+
+  validation {
+    condition     = var.layer == null ? true : contains(["10_core", "20_infra", "30_app"], var.layer)
+    error_message = "Layer must be one of: 10_core, 20_infra, 30_app, or null."
   }
 }
 
