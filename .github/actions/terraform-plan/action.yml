@@ -44,24 +44,26 @@ runs:
       shell: bash
       working-directory: practice/deploy/${{ inputs.layer }}/environments/${{ inputs.environment }}
       run: |
+        set +e
         echo "Running terraform plan for ${{ inputs.layer }} layer..."
 
+        PLAN_OUTPUT_FILE="plan_output.txt"
+
         if [ "${{ inputs.save-plan }}" = "true" ]; then
-          terraform plan -no-color -out=tfplan -lock-timeout=${{ inputs.lock-timeout }} > plan_output.txt 2>&1
+          terraform plan -no-color -out=tfplan -lock-timeout=${{ inputs.lock-timeout }} 2>&1 | tee "$PLAN_OUTPUT_FILE"
         else
-          terraform plan -no-color -lock-timeout=${{ inputs.lock-timeout }} > plan_output.txt 2>&1
+          terraform plan -no-color -lock-timeout=${{ inputs.lock-timeout }} 2>&1 | tee "$PLAN_OUTPUT_FILE"
         fi
 
         PLAN_EXIT_CODE=${PIPESTATUS[0]}
         echo "exit_code=$PLAN_EXIT_CODE" >> $GITHUB_OUTPUT
 
-        echo "=== Terraform Plan Output ==="
-        cat plan_output.txt
-        echo "=== End Plan Output ==="
-
         if [ $PLAN_EXIT_CODE -ne 0 ]; then
           echo "::error::Terraform plan failed with exit code $PLAN_EXIT_CODE"
-          echo "Last 50 lines of plan output:"
-          tail -50 plan_output.txt || cat plan_output.txt
+          if [ -f "$PLAN_OUTPUT_FILE" ] && [ -s "$PLAN_OUTPUT_FILE" ]; then
+            echo "Last 50 lines of plan output:"
+            tail -50 "$PLAN_OUTPUT_FILE"
+          fi
           exit $PLAN_EXIT_CODE
         fi
+        set -e
