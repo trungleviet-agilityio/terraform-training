@@ -282,7 +282,7 @@ data "aws_iam_policy_document" "terraform_apply" {
     resources = [
       var.dynamodb_table_arn
     ]
-  }
+}
 
   # Lambda permissions
   statement {

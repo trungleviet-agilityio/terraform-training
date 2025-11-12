@@ -51,12 +51,12 @@ variable "github_oidc_config" {
     allowed_branches  = optional(list(string))
   })
   default = {
-    organization      = ""
-    repository        = ""
-    create_oidc       = false
-    create_policies   = false
-    create_plan_role  = false
-    create_apply_role = false
+    organization      = "trungleviet-agilityio"
+    repository        = "terraform-training"
+    create_oidc       = true
+    create_policies   = true
+    create_plan_role  = true
+    create_apply_role = true
     allowed_branches  = null
   }
 }
@@ -93,5 +93,25 @@ variable "dynamodb_tables" {
     kms_key_id                    = optional(string)
     purpose                       = optional(string, "Application Data Storage")
   }))
-  default = {}
+  default = {
+    "user-data" = {
+      partition_key = "user_id"
+      type          = "key-value"
+      attribute_types = {
+        user_id = "S"
+      }
+      enable_point_in_time_recovery = true
+    }
+    "events" = {
+      partition_key = "event_type"
+      sort_key      = "timestamp"
+      type          = "time-series"
+      attribute_types = {
+        event_type = "S"
+        timestamp  = "N"
+      }
+      enable_ttl    = true
+      ttl_attribute = "ttl"
+    }
+  }
 }
