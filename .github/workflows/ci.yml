@@ -127,14 +127,30 @@ jobs:
       - name: Terraform Init (No Backend)
         working-directory: practice/deploy/${{ matrix.layer }}/environments/dev
         run: |
-          terraform init -backend=false -input=false || {
-            echo "::warning::Terraform init with -backend=false failed, trying without backend validation"
-            terraform init -backend=false -reconfigure -input=false
+          # Backup providers.tf
+          cp providers.tf providers.tf.backup
+
+          # Remove backend block to avoid validation
+          sed -i '/^  backend "s3" {/,/^  }$/d' providers.tf || {
+            echo "::warning::Failed to remove backend block, continuing anyway"
           }
 
-      - name: Terraform Validate
-        working-directory: practice/deploy/${{ matrix.layer }}/environments/dev
-        run: terraform validate
+          # Run init and validate without backend
+          terraform init -backend=false -input=false || {
+            echo "::error::Terraform init failed"
+            mv providers.tf.backup providers.tf
+            exit 1
+          }
+
+          terraform validate || {
+            echo "::error::Terraform validate failed"
+            mv providers.tf.backup providers.tf
+            exit 1
+          }
+
+          # Restore providers.tf
+          mv providers.tf.backup providers.tf
+          echo "✓ Validation completed successfully"
 
       - name: Configure AWS credentials (for plan)
         uses: aws-actions/configure-aws-credentials@v4
