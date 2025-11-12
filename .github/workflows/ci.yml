@@ -28,11 +28,9 @@ jobs:
         run: |
           CHANGED_LAYERS_ARR=()
 
-          # Get changed files between PR base and head
           if git rev-parse --verify origin/${{ github.base_ref }} >/dev/null 2>&1; then
             CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
           else
-            # Fallback: compare with previous commit
             if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
               CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
             else
@@ -42,8 +40,6 @@ jobs:
 
           echo "Changed files:"
           echo "$CHANGED_FILES"
-
-          # Detect which layers have changes
           if echo "$CHANGED_FILES" | grep -q "^practice/deploy/10_core/"; then
             CHANGED_LAYERS_ARR+=("10_core")
           fi
@@ -54,17 +50,12 @@ jobs:
             CHANGED_LAYERS_ARR+=("30_app")
           fi
 
-          # If no layers detected, skip workflow (don't run for non-infra changes)
           if [ ${#CHANGED_LAYERS_ARR[@]} -eq 0 ]; then
             echo "No Terraform layer changes detected. Skipping workflow."
             CHANGED_LAYERS_ARR=("skip")
           fi
 
-          # Convert array to JSON format for matrix
-          # Create JSON array and ensure no extra whitespace or newlines
           LAYERS_JSON=$(printf '%s\n' "${CHANGED_LAYERS_ARR[@]}" | jq -R . | jq -s -c . | tr -d '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-
-          # Write to GitHub Actions output
           echo "layers=$LAYERS_JSON" >> $GITHUB_OUTPUT
 
           echo "Detected changed layers: ${CHANGED_LAYERS_ARR[*]}"
@@ -117,35 +108,24 @@ jobs:
           SECRET_NAME="/practice/${ENVIRONMENT}/${LAYER}/terraform-vars"
 
           if aws secretsmanager describe-secret --secret-id "$SECRET_NAME" &>/dev/null; then
-            echo "Retrieving Terraform variables from Secrets Manager..."
             SECRET_VALUE=$(aws secretsmanager get-secret-value \
               --secret-id "$SECRET_NAME" \
               --query SecretString --output text)
 
-            # Parse JSON and convert to TF_VAR_* environment variables (lowercase format)
-            # Terraform automatically maps TF_VAR_* environment variables to variable names
             echo "$SECRET_VALUE" | jq -r 'to_entries[] | "\(.key)|\(.value | tostring)"' | while IFS='|' read -r key value_json; do
-              # Convert key to TF_VAR_* format (lowercase, matching variable name)
               var_name="TF_VAR_$key"
-
-              # Check value type from original JSON
               value_type=$(echo "$SECRET_VALUE" | jq -r ".[\"$key\"] | type")
 
               if [ "$value_type" = "object" ] || [ "$value_type" = "array" ]; then
-                # Complex object/array: convert to compact JSON string
                 var_value=$(echo "$SECRET_VALUE" | jq -c ".[\"$key\"]")
               else
-                # Simple value: use as-is (jq -r removes quotes for strings)
                 var_value=$(echo "$SECRET_VALUE" | jq -r ".[\"$key\"]")
               fi
 
-              # Export as environment variable for subsequent steps
               echo "$var_name=$var_value" >> $GITHUB_ENV
-              echo "Set $var_name"
             done
 
             echo "vars_available=true" >> $GITHUB_OUTPUT
-            echo "Successfully loaded Terraform variables from Secrets Manager"
           else
             echo "::error::Secret $SECRET_NAME not found. Ensure 10_core layer is deployed and secret exists."
             echo "vars_available=false" >> $GITHUB_OUTPUT
@@ -159,9 +139,7 @@ jobs:
         run: |
           SECRET_NAME="/practice/${ENVIRONMENT}/backend-bucket"
 
-          # Try to retrieve from Secrets Manager
           if aws secretsmanager describe-secret --secret-id "$SECRET_NAME" &>/dev/null; then
-            echo "Retrieving bucket name from Secrets Manager..."
             SECRET_VALUE=$(aws secretsmanager get-secret-value \
               --secret-id "$SECRET_NAME" \
               --query SecretString --output text)
@@ -170,20 +148,21 @@ jobs:
             if [ -n "$BUCKET_NAME" ] && [ "$BUCKET_NAME" != "null" ]; then
               echo "bucket=$BUCKET_NAME" >> $GITHUB_OUTPUT
               echo "backend_available=true" >> $GITHUB_OUTPUT
-              echo "Using bucket from Secrets Manager: $BUCKET_NAME"
             else
-              echo "Failed to parse bucket name from secret"
               echo "backend_available=false" >> $GITHUB_OUTPUT
             fi
           else
-            echo "Secret not found, constructing bucket name from pattern..."
-            # Fallback: construct bucket name from pattern
             ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
             BUCKET_NAME="tt-practice-tf-state-${ENVIRONMENT}-${ACCOUNT_ID}"
             echo "bucket=$BUCKET_NAME" >> $GITHUB_OUTPUT
             echo "backend_available=true" >> $GITHUB_OUTPUT
-            echo "Using constructed bucket name: $BUCKET_NAME"
           fi
+
+      - name: Build Lambda packages
+        if: steps.backend-config.outputs.backend_available == 'true' && steps.terraform-vars.outputs.vars_available == 'true' && matrix.layer == '30_app'
+        working-directory: practice
+        run: |
+          ./bin/cb build
 
       - name: Terraform Init (with backend for plan)
         if: steps.backend-config.outputs.backend_available == 'true' && steps.terraform-vars.outputs.vars_available == 'true'
@@ -196,8 +175,6 @@ jobs:
         id: terraform-plan
         working-directory: practice/deploy/${{ matrix.layer }}/environments/dev
         run: |
-          # Use -lock-timeout to wait for locks, but don't use -out=tfplan to avoid write lock conflicts
-          # For CI, we only need the plan output for PR comments, not a saved plan file
           terraform plan -no-color -lock-timeout=30s > plan_output.txt 2>&1 || true
           cat plan_output.txt
         continue-on-error: true

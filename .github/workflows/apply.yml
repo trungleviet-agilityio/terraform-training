@@ -46,31 +46,24 @@ jobs:
         run: |
           CHANGED_LAYERS_ARR=()
 
-          # Check if manual input provided (only available for workflow_dispatch)
           MANUAL_LAYER="${{ github.event.inputs.layer }}"
 
           if [ -n "$MANUAL_LAYER" ]; then
             CHANGED_LAYERS_ARR=("$MANUAL_LAYER")
           else
-            # Get changed files - handle both push and workflow_dispatch events
             if [ "${{ github.event_name }}" = "push" ]; then
-              # For push events, compare with previous commit
-              # Handle first commit on branch (no HEAD~1)
               if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
                 CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
               else
-                # First commit: compare with base branch or list all files
                 CHANGED_FILES=$(git diff --name-only --diff-filter=A HEAD || git ls-files practice/deploy/)
               fi
             else
-              # For workflow_dispatch, check all files or use a default
               CHANGED_FILES=$(git ls-files practice/deploy/)
             fi
 
             echo "Changed files:"
             echo "$CHANGED_FILES"
 
-            # Detect which layers have changes
             if echo "$CHANGED_FILES" | grep -q "^practice/deploy/10_core/"; then
               CHANGED_LAYERS_ARR+=("10_core")
             fi
@@ -81,17 +74,13 @@ jobs:
               CHANGED_LAYERS_ARR+=("30_app")
             fi
 
-            # If no layers detected, apply all layers (GitOps: ensure consistency)
             if [ ${#CHANGED_LAYERS_ARR[@]} -eq 0 ]; then
               echo "No specific layer changes detected. Applying all layers for consistency."
               CHANGED_LAYERS_ARR=("10_core" "20_infra" "30_app")
             fi
           fi
 
-          # Convert array to JSON format for matrix
-          # Create JSON array and ensure no extra whitespace or newlines
           LAYERS_JSON=$(printf '%s\n' "${CHANGED_LAYERS_ARR[@]}" | jq -R . | jq -s -c . | tr -d '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-
           echo "layers=$LAYERS_JSON" >> $GITHUB_OUTPUT
           echo "Detected changed layers: ${CHANGED_LAYERS_ARR[*]}"
           echo "Layers JSON: $LAYERS_JSON"
@@ -99,29 +88,20 @@ jobs:
       - name: Determine environment
         id: env
         run: |
-          ENV=""
-
-          # Check if manual input provided (only available for workflow_dispatch)
           MANUAL_ENV="${{ github.event.inputs.environment }}"
 
           if [ -n "$MANUAL_ENV" ]; then
             ENV="$MANUAL_ENV"
           else
-            # Default to dev for feat/terraform-practice branch (as per plan)
             ENV="dev"
           fi
 
           echo "environment=$ENV" >> $GITHUB_OUTPUT
-          echo "Determined environment: $ENV"
 
   apply:
     name: Apply Terraform - ${{ matrix.layer }} (${{ needs.detect-changes.outputs.environment }})
     needs: detect-changes
     runs-on: ubuntu-latest
-    # IMPORTANT: This workflow uses GitHub Environment secrets
-    # You MUST configure AWS_ROLE_ARN in the GitHub Environment (dev/stage/prod) secrets
-    # Set it to the terraform-apply role ARN (e.g., arn:aws:iam::ACCOUNT:role/tt-practice-dev-terraform-apply)
-    # Repository-level AWS_ROLE_ARN should be set to terraform-plan role ARN (for CI workflow)
     environment: ${{ needs.detect-changes.outputs.environment }}
     strategy:
       fail-fast: false
@@ -131,12 +111,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials (for apply)
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          # Use environment-specific secret if available, otherwise fall back to repository secret
-          # IMPORTANT: For apply operations, set AWS_ROLE_ARN in GitHub Environment secrets to terraform-apply role ARN
-          # Repository-level AWS_ROLE_ARN should be set to terraform-plan role ARN (for CI workflow)
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ secrets.AWS_REGION }}
           role-session-name: GitHubActions-TerraformApply-${{ github.run_id }}
@@ -156,35 +133,24 @@ jobs:
           SECRET_NAME="/practice/${ENVIRONMENT}/${LAYER}/terraform-vars"
 
           if aws secretsmanager describe-secret --secret-id "$SECRET_NAME" &>/dev/null; then
-            echo "Retrieving Terraform variables from Secrets Manager..."
             SECRET_VALUE=$(aws secretsmanager get-secret-value \
               --secret-id "$SECRET_NAME" \
               --query SecretString --output text)
 
-            # Parse JSON and convert to TF_VAR_* environment variables (lowercase format)
-            # Terraform automatically maps TF_VAR_* environment variables to variable names
             echo "$SECRET_VALUE" | jq -r 'to_entries[] | "\(.key)|\(.value | tostring)"' | while IFS='|' read -r key value_json; do
-              # Convert key to TF_VAR_* format (lowercase, matching variable name)
               var_name="TF_VAR_$key"
-
-              # Check value type from original JSON
               value_type=$(echo "$SECRET_VALUE" | jq -r ".[\"$key\"] | type")
 
               if [ "$value_type" = "object" ] || [ "$value_type" = "array" ]; then
-                # Complex object/array: convert to compact JSON string
                 var_value=$(echo "$SECRET_VALUE" | jq -c ".[\"$key\"]")
               else
-                # Simple value: use as-is (jq -r removes quotes for strings)
                 var_value=$(echo "$SECRET_VALUE" | jq -r ".[\"$key\"]")
               fi
 
-              # Export as environment variable for subsequent steps
               echo "$var_name=$var_value" >> $GITHUB_ENV
-              echo "Set $var_name"
             done
 
             echo "vars_available=true" >> $GITHUB_OUTPUT
-            echo "Successfully loaded Terraform variables from Secrets Manager"
           else
             echo "::error::Secret $SECRET_NAME not found. Ensure 10_core layer is deployed and secret exists."
             echo "vars_available=false" >> $GITHUB_OUTPUT
@@ -198,9 +164,7 @@ jobs:
         run: |
           SECRET_NAME="/practice/${ENVIRONMENT}/backend-bucket"
 
-          # Try to retrieve from Secrets Manager
           if aws secretsmanager describe-secret --secret-id "$SECRET_NAME" &>/dev/null; then
-            echo "Retrieving bucket name from Secrets Manager..."
             SECRET_VALUE=$(aws secretsmanager get-secret-value \
               --secret-id "$SECRET_NAME" \
               --query SecretString --output text)
@@ -209,20 +173,21 @@ jobs:
             if [ -n "$BUCKET_NAME" ] && [ "$BUCKET_NAME" != "null" ]; then
               echo "bucket=$BUCKET_NAME" >> $GITHUB_OUTPUT
               echo "backend_available=true" >> $GITHUB_OUTPUT
-              echo "Using bucket from Secrets Manager: $BUCKET_NAME"
             else
-              echo "Failed to parse bucket name from secret"
               echo "backend_available=false" >> $GITHUB_OUTPUT
             fi
           else
-            echo "Secret not found, constructing bucket name from pattern..."
-            # Fallback: construct bucket name from pattern
             ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
             BUCKET_NAME="tt-practice-tf-state-${ENVIRONMENT}-${ACCOUNT_ID}"
             echo "bucket=$BUCKET_NAME" >> $GITHUB_OUTPUT
             echo "backend_available=true" >> $GITHUB_OUTPUT
-            echo "Using constructed bucket name: $BUCKET_NAME"
           fi
+
+      - name: Build Lambda packages
+        if: steps.backend-config.outputs.backend_available == 'true' && steps.terraform-vars.outputs.vars_available == 'true' && matrix.layer == '30_app'
+        working-directory: practice
+        run: |
+          ./bin/cb build
 
       - name: Terraform Init
         if: steps.backend-config.outputs.backend_available == 'true' && steps.terraform-vars.outputs.vars_available == 'true'
@@ -239,7 +204,6 @@ jobs:
         if: steps.backend-config.outputs.backend_available == 'true' && steps.terraform-vars.outputs.vars_available == 'true'
         working-directory: practice/deploy/${{ matrix.layer }}/environments/${{ needs.detect-changes.outputs.environment }}
         run: |
-          # Use -lock-timeout to wait for locks from concurrent operations
           terraform plan -no-color -out=tfplan -lock-timeout=60s
 
       - name: Terraform Apply
