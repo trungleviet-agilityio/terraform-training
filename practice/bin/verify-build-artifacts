@@ -1,0 +1,38 @@
+#!/bin/bash
+set -euo pipefail
+
+# Verify Lambda build artifacts exist
+# Usage: verify-build-artifacts [working_directory]
+
+WORK_DIR="${1:-practice}"
+cd "$WORK_DIR"
+
+REQUIRED_FILES=(
+  "out/api_server/signatures.json"
+  "out/worker/signatures.json"
+  "out/cron_server/signatures.json"
+  "out/practice_util/signatures.json"
+)
+
+MISSING_FILES=()
+
+for file in "${REQUIRED_FILES[@]}"; do
+  if [ ! -f "$file" ]; then
+    MISSING_FILES+=("$file")
+  fi
+done
+
+if [ ${#MISSING_FILES[@]} -gt 0 ]; then
+  echo "::error::Build artifacts missing:"
+  printf '  - %s\n' "${MISSING_FILES[@]}"
+  echo ""
+  echo "Contents of out/ directory:"
+  ls -la out/ 2>/dev/null || echo "out/ directory does not exist"
+  echo ""
+  echo "Found artifacts:"
+  find out -type f -name "*.json" -o -name "*.zip" 2>/dev/null | head -20 || echo "No artifacts found"
+  exit 1
+fi
+
+echo "✓ All build artifacts verified"
+ls -lh out/*/signatures.json
