@@ -80,6 +80,46 @@ jobs:
           terraform_version: ~> 1.5.0
           terraform_wrapper: false
 
+      - name: Cache Terraform providers
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.terraform.d/plugins
+            practice/deploy/${{ matrix.layer }}/environments/dev/.terraform
+          key: ${{ runner.os }}-terraform-${{ matrix.layer }}-${{ hashFiles('practice/deploy/${{ matrix.layer }}/**/versions.tf', 'practice/deploy/${{ matrix.layer }}/**/providers.tf') }}
+          restore-keys: |
+            ${{ runner.os }}-terraform-${{ matrix.layer }}-
+            ${{ runner.os }}-terraform-
+
+      - name: Setup Python
+        if: matrix.layer == '30_app'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: Install UV
+        if: matrix.layer == '30_app'
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Cache UV Python installations
+        if: matrix.layer == '30_app'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.local/share/uv/python
+            ~/.cache/uv
+          key: ${{ runner.os }}-uv-python-${{ hashFiles('practice/src/**/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-python-
+
+      - name: Install Python 3.13 via UV
+        if: matrix.layer == '30_app'
+        run: |
+          uv python install 3.13
+
       - name: Terraform Format Check
         working-directory: practice/deploy/${{ matrix.layer }}/environments/dev
         run: terraform fmt -check -recursive || (echo "::error::Terraform files are not formatted. Run 'terraform fmt' to fix." && exit 1)
@@ -158,11 +198,34 @@ jobs:
             echo "backend_available=true" >> $GITHUB_OUTPUT
           fi
 
+      - name: Cache build artifacts
+        if: matrix.layer == '30_app'
+        uses: actions/cache@v4
+        with:
+          path: practice/out
+          key: ${{ runner.os }}-lambda-build-${{ hashFiles('practice/src/**/pyproject.toml', 'practice/src/**/*.py') }}
+          restore-keys: |
+            ${{ runner.os }}-lambda-build-
+
+      - name: Install shasum
+        if: matrix.layer == '30_app'
+        run: |
+          if ! command -v shasum &> /dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y libdigest-sha-perl
+          fi
+
       - name: Build Lambda packages
         if: steps.backend-config.outputs.backend_available == 'true' && steps.terraform-vars.outputs.vars_available == 'true' && matrix.layer == '30_app'
         working-directory: practice
         run: |
+          chmod +x ./bin/cb
           ./bin/cb build
+          if [ ! -f "out/api_server/signatures.json" ] || [ ! -f "out/worker/signatures.json" ] || [ ! -f "out/cron_server/signatures.json" ] || [ ! -f "out/practice_util/signatures.json" ]; then
+            echo "::error::Build failed: signatures.json files not found"
+            ls -la out/*/
+            exit 1
+          fi
 
       - name: Terraform Init (with backend for plan)
         if: steps.backend-config.outputs.backend_available == 'true' && steps.terraform-vars.outputs.vars_available == 'true'
@@ -175,8 +238,13 @@ jobs:
         id: terraform-plan
         working-directory: practice/deploy/${{ matrix.layer }}/environments/dev
         run: |
-          terraform plan -no-color -lock-timeout=30s > plan_output.txt 2>&1 || true
+          terraform plan -no-color -lock-timeout=30s > plan_output.txt 2>&1
+          PLAN_EXIT_CODE=${PIPESTATUS[0]}
           cat plan_output.txt
+          if [ $PLAN_EXIT_CODE -ne 0 ]; then
+            echo "::error::Terraform plan failed with exit code $PLAN_EXIT_CODE"
+            exit $PLAN_EXIT_CODE
+          fi
         continue-on-error: true
 
       - name: Comment PR with Plan Output

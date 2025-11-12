@@ -124,6 +124,47 @@ jobs:
           terraform_version: ~> 1.5.0
           terraform_wrapper: false
 
+      - name: Cache Terraform providers
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.terraform.d/plugins
+            practice/deploy/${{ matrix.layer }}/environments/${{ needs.detect-changes.outputs.environment }}/.terraform
+          key: ${{ runner.os }}-terraform-${{ matrix.layer }}-${{ needs.detect-changes.outputs.environment }}-${{ hashFiles('practice/deploy/${{ matrix.layer }}/**/versions.tf', 'practice/deploy/${{ matrix.layer }}/**/providers.tf') }}
+          restore-keys: |
+            ${{ runner.os }}-terraform-${{ matrix.layer }}-${{ needs.detect-changes.outputs.environment }}-
+            ${{ runner.os }}-terraform-${{ matrix.layer }}-
+            ${{ runner.os }}-terraform-
+
+      - name: Setup Python
+        if: matrix.layer == '30_app'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: Install UV
+        if: matrix.layer == '30_app'
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Cache UV Python installations
+        if: matrix.layer == '30_app'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.local/share/uv/python
+            ~/.cache/uv
+          key: ${{ runner.os }}-uv-python-${{ hashFiles('practice/src/**/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-python-
+
+      - name: Install Python 3.13 via UV
+        if: matrix.layer == '30_app'
+        run: |
+          uv python install 3.13
+
       - name: Get Terraform variables from Secrets Manager
         id: terraform-vars
         env:
@@ -183,11 +224,34 @@ jobs:
             echo "backend_available=true" >> $GITHUB_OUTPUT
           fi
 
+      - name: Cache build artifacts
+        if: matrix.layer == '30_app'
+        uses: actions/cache@v4
+        with:
+          path: practice/out
+          key: ${{ runner.os }}-lambda-build-${{ hashFiles('practice/src/**/pyproject.toml', 'practice/src/**/*.py') }}
+          restore-keys: |
+            ${{ runner.os }}-lambda-build-
+
+      - name: Install shasum
+        if: matrix.layer == '30_app'
+        run: |
+          if ! command -v shasum &> /dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y libdigest-sha-perl
+          fi
+
       - name: Build Lambda packages
         if: steps.backend-config.outputs.backend_available == 'true' && steps.terraform-vars.outputs.vars_available == 'true' && matrix.layer == '30_app'
         working-directory: practice
         run: |
+          chmod +x ./bin/cb
           ./bin/cb build
+          if [ ! -f "out/api_server/signatures.json" ] || [ ! -f "out/worker/signatures.json" ] || [ ! -f "out/cron_server/signatures.json" ] || [ ! -f "out/practice_util/signatures.json" ]; then
+            echo "::error::Build failed: signatures.json files not found"
+            ls -la out/*/
+            exit 1
+          fi
 
       - name: Terraform Init
         if: steps.backend-config.outputs.backend_available == 'true' && steps.terraform-vars.outputs.vars_available == 'true'
