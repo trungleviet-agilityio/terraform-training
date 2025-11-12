@@ -247,17 +247,8 @@ jobs:
         run: |
           chmod +x ./bin/cb
           ./bin/cb build
-          echo "Verifying build artifacts..."
-          ls -la out/*/signatures.json || echo "Missing signatures.json files"
-          if [ ! -f "out/api_server/signatures.json" ] || [ ! -f "out/worker/signatures.json" ] || [ ! -f "out/cron_server/signatures.json" ] || [ ! -f "out/practice_util/signatures.json" ]; then
-            echo "::error::Build failed: signatures.json files not found"
-            echo "Contents of out/ directory:"
-            ls -la out/ || echo "out/ directory does not exist"
-            echo "Contents of out subdirectories:"
-            find out -type f -name "*.json" -o -name "*.zip" 2>/dev/null || echo "No build artifacts found"
-            exit 1
-          fi
-          echo "✓ All build artifacts verified"
+          chmod +x ./bin/verify-build-artifacts
+          ./bin/verify-build-artifacts .
 
       - name: Terraform Init
         if: steps.backend-config.outputs.backend_available == 'true' && steps.terraform-vars.outputs.vars_available == 'true'

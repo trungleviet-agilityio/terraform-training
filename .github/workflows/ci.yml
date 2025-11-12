@@ -124,33 +124,11 @@ jobs:
         working-directory: practice/deploy/${{ matrix.layer }}/environments/dev
         run: terraform fmt -check -recursive || (echo "::error::Terraform files are not formatted. Run 'terraform fmt' to fix." && exit 1)
 
-      - name: Terraform Init (No Backend)
+      - name: Terraform Validate (No Backend)
         working-directory: practice/deploy/${{ matrix.layer }}/environments/dev
         run: |
-          # Backup providers.tf
-          cp providers.tf providers.tf.backup
-
-          # Remove backend block to avoid validation
-          sed -i '/^  backend "s3" {/,/^  }$/d' providers.tf || {
-            echo "::warning::Failed to remove backend block, continuing anyway"
-          }
-
-          # Run init and validate without backend
-          terraform init -backend=false -input=false || {
-            echo "::error::Terraform init failed"
-            mv providers.tf.backup providers.tf
-            exit 1
-          }
-
-          terraform validate || {
-            echo "::error::Terraform validate failed"
-            mv providers.tf.backup providers.tf
-            exit 1
-          }
-
-          # Restore providers.tf
-          mv providers.tf.backup providers.tf
-          echo "✓ Validation completed successfully"
+          chmod +x ../../../../bin/terraform-validate-no-backend
+          ../../../../bin/terraform-validate-no-backend providers.tf
 
       - name: Configure AWS credentials (for plan)
         uses: aws-actions/configure-aws-credentials@v4
@@ -240,30 +218,10 @@ jobs:
         if: steps.backend-config.outputs.backend_available == 'true' && steps.terraform-vars.outputs.vars_available == 'true' && matrix.layer == '30_app'
         working-directory: practice
         run: |
-          echo "Cache hit: ${{ steps.cache-build.outputs.cache-hit }}"
-          echo "Current working directory: $(pwd)"
-          echo "Checking if out/ directory exists:"
-          ls -la out/ 2>/dev/null || echo "out/ directory does not exist yet"
-
           chmod +x ./bin/cb
-          echo "Running cb build..."
           ./bin/cb build
-
-          echo "Verifying build artifacts..."
-          echo "Absolute path to out/: $(pwd)/out"
-          ls -la out/*/signatures.json 2>/dev/null || echo "Missing signatures.json files"
-
-          if [ ! -f "out/api_server/signatures.json" ] || [ ! -f "out/worker/signatures.json" ] || [ ! -f "out/cron_server/signatures.json" ] || [ ! -f "out/practice_util/signatures.json" ]; then
-            echo "::error::Build failed: signatures.json files not found"
-            echo "Contents of out/ directory:"
-            ls -la out/ || echo "out/ directory does not exist"
-            echo "Contents of out subdirectories:"
-            find out -type f -name "*.json" -o -name "*.zip" 2>/dev/null | head -20 || echo "No build artifacts found"
-            exit 1
-          fi
-          echo "✓ All build artifacts verified"
-          echo "Build artifacts location:"
-          ls -lh out/*/signatures.json
+          chmod +x ./bin/verify-build-artifacts
+          ./bin/verify-build-artifacts .
 
       - name: Terraform Init (with backend for plan)
         if: steps.backend-config.outputs.backend_available == 'true' && steps.terraform-vars.outputs.vars_available == 'true'
@@ -275,14 +233,8 @@ jobs:
         if: steps.backend-config.outputs.backend_available == 'true' && steps.terraform-vars.outputs.vars_available == 'true' && matrix.layer == '30_app'
         working-directory: practice
         run: |
-          echo "Verifying build artifacts exist before terraform plan..."
-          if [ ! -f "out/api_server/signatures.json" ] || [ ! -f "out/worker/signatures.json" ] || [ ! -f "out/cron_server/signatures.json" ] || [ ! -f "out/practice_util/signatures.json" ]; then
-            echo "::error::Build artifacts missing before terraform plan"
-            ls -la out/*/ || echo "out/ directory structure:"
-            find out -type f 2>/dev/null | head -20 || echo "No files found in out/"
-            exit 1
-          fi
-          echo "✓ All build artifacts present"
+          chmod +x ./bin/verify-build-artifacts
+          ./bin/verify-build-artifacts .
 
       - name: Terraform Plan
         if: steps.backend-config.outputs.backend_available == 'true' && steps.terraform-vars.outputs.vars_available == 'true'
