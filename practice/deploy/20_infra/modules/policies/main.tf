@@ -98,6 +98,7 @@ data "aws_iam_policy_document" "terraform_plan" {
       "lambda:GetPolicy",
       "lambda:ListAliases",
       "lambda:ListTags",
+      "lambda:GetLayerVersion",
 
       # API Gateway v2 permissions (HTTP API)
       "apigatewayv2:GetApi",
@@ -153,6 +154,7 @@ data "aws_iam_policy_document" "terraform_plan" {
 
     resources = [
       "arn:aws:lambda:${var.region}:${var.account_id}:function:*",
+      "arn:aws:lambda:${var.region}:${var.account_id}:layer:*:*",
       "arn:aws:apigateway:${var.region}::/*",
       "arn:aws:sqs:${var.region}:${var.account_id}:*",
       "arn:aws:scheduler:${var.region}:${var.account_id}:schedule/*",
@@ -295,7 +297,8 @@ data "aws_iam_policy_document" "terraform_apply" {
     ]
 
     resources = [
-      "arn:aws:lambda:${var.region}:${var.account_id}:function:*"
+      "arn:aws:lambda:${var.region}:${var.account_id}:function:*",
+      "arn:aws:lambda:${var.region}:${var.account_id}:layer:*:*"
     ]
   }
 
