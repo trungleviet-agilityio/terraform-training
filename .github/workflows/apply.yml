@@ -35,6 +35,9 @@ jobs:
     outputs:
       layers: ${{ steps.detect.outputs.layers }}
       environment: ${{ steps.env.outputs.environment }}
+      has_10_core: ${{ steps.detect.outputs.has_10_core }}
+      has_20_infra: ${{ steps.detect.outputs.has_20_infra }}
+      has_30_app: ${{ steps.detect.outputs.has_30_app }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -45,11 +48,19 @@ jobs:
         id: detect
         run: |
           CHANGED_LAYERS_ARR=()
+          HAS_10_CORE=false
+          HAS_20_INFRA=false
+          HAS_30_APP=false
 
           MANUAL_LAYER="${{ github.event.inputs.layer }}"
 
           if [ -n "$MANUAL_LAYER" ]; then
             CHANGED_LAYERS_ARR=("$MANUAL_LAYER")
+            case "$MANUAL_LAYER" in
+              "10_core") HAS_10_CORE=true ;;
+              "20_infra") HAS_20_INFRA=true ;;
+              "30_app") HAS_30_APP=true ;;
+            esac
           else
             if [ "${{ github.event_name }}" = "push" ]; then
               if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
@@ -66,22 +77,31 @@ jobs:
 
             if echo "$CHANGED_FILES" | grep -q "^practice/deploy/10_core/"; then
               CHANGED_LAYERS_ARR+=("10_core")
+              HAS_10_CORE=true
             fi
             if echo "$CHANGED_FILES" | grep -q "^practice/deploy/20_infra/"; then
               CHANGED_LAYERS_ARR+=("20_infra")
+              HAS_20_INFRA=true
             fi
             if echo "$CHANGED_FILES" | grep -q "^practice/deploy/30_app/"; then
               CHANGED_LAYERS_ARR+=("30_app")
+              HAS_30_APP=true
             fi
 
             if [ ${#CHANGED_LAYERS_ARR[@]} -eq 0 ]; then
               echo "No specific layer changes detected. Applying all layers for consistency."
               CHANGED_LAYERS_ARR=("10_core" "20_infra" "30_app")
+              HAS_10_CORE=true
+              HAS_20_INFRA=true
+              HAS_30_APP=true
             fi
           fi
 
           LAYERS_JSON=$(printf '%s\n' "${CHANGED_LAYERS_ARR[@]}" | jq -R . | jq -s -c . | tr -d '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
           echo "layers=$LAYERS_JSON" >> $GITHUB_OUTPUT
+          echo "has_10_core=$HAS_10_CORE" >> $GITHUB_OUTPUT
+          echo "has_20_infra=$HAS_20_INFRA" >> $GITHUB_OUTPUT
+          echo "has_30_app=$HAS_30_APP" >> $GITHUB_OUTPUT
           echo "Detected changed layers: ${CHANGED_LAYERS_ARR[*]}"
           echo "Layers JSON: $LAYERS_JSON"
 
@@ -98,177 +118,111 @@ jobs:
 
           echo "environment=$ENV" >> $GITHUB_OUTPUT
 
-  apply:
-    name: Apply Terraform - ${{ matrix.layer }} (${{ needs.detect-changes.outputs.environment }})
+  apply-10-core:
+    name: Apply Terraform - 10_core (${{ needs.detect-changes.outputs.environment }})
     needs: detect-changes
     runs-on: ubuntu-latest
     environment: ${{ needs.detect-changes.outputs.environment }}
-    strategy:
-      fail-fast: false
-      matrix:
-        layer: ${{ fromJson(needs.detect-changes.outputs.layers) }}
+    if: needs.detect-changes.outputs.has_10_core == 'true'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ secrets.AWS_REGION }}
-          role-session-name: GitHubActions-TerraformApply-${{ github.run_id }}
-
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: ./.github/actions/setup-terraform
         with:
-          terraform_version: ~> 1.5.0
-          terraform_wrapper: false
+          layer: 10_core
+          environment: ${{ needs.detect-changes.outputs.environment }}
+          aws-role-arn: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          run-id: ${{ github.run_id }}
 
-      - name: Cache Terraform providers
-        uses: actions/cache@v4
+      - name: Get Terraform Secrets
+        id: secrets
+        uses: ./.github/actions/get-terraform-secrets
         with:
-          path: |
-            ~/.terraform.d/plugins
-            practice/deploy/${{ matrix.layer }}/environments/${{ needs.detect-changes.outputs.environment }}/.terraform
-          key: ${{ runner.os }}-terraform-${{ matrix.layer }}-${{ needs.detect-changes.outputs.environment }}-${{ hashFiles('practice/deploy/${{ matrix.layer }}/**/versions.tf', 'practice/deploy/${{ matrix.layer }}/**/providers.tf') }}
-          restore-keys: |
-            ${{ runner.os }}-terraform-${{ matrix.layer }}-${{ needs.detect-changes.outputs.environment }}-
-            ${{ runner.os }}-terraform-${{ matrix.layer }}-
-            ${{ runner.os }}-terraform-
-
-      - name: Setup Python
-        if: matrix.layer == '30_app'
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-          cache: 'pip'
-
-      - name: Install UV
-        if: matrix.layer == '30_app'
-        uses: astral-sh/setup-uv@v4
-        with:
-          version: "latest"
-
-      - name: Cache UV Python installations
-        if: matrix.layer == '30_app'
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.local/share/uv/python
-            ~/.cache/uv
-          key: ${{ runner.os }}-uv-python-${{ hashFiles('practice/src/**/pyproject.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-uv-python-
-
-      - name: Install Python 3.13 via UV
-        if: matrix.layer == '30_app'
-        run: |
-          uv python install 3.13
-
-      - name: Get Terraform variables from Secrets Manager
-        id: terraform-vars
-        env:
-          ENVIRONMENT: ${{ needs.detect-changes.outputs.environment }}
-          LAYER: ${{ matrix.layer }}
-        run: |
-          SECRET_NAME="/practice/${ENVIRONMENT}/${LAYER}/terraform-vars"
-
-          if aws secretsmanager describe-secret --secret-id "$SECRET_NAME" &>/dev/null; then
-            SECRET_VALUE=$(aws secretsmanager get-secret-value \
-              --secret-id "$SECRET_NAME" \
-              --query SecretString --output text)
-
-            echo "$SECRET_VALUE" | jq -r 'to_entries[] | "\(.key)|\(.value | tostring)"' | while IFS='|' read -r key value_json; do
-              var_name="TF_VAR_$key"
-              value_type=$(echo "$SECRET_VALUE" | jq -r ".[\"$key\"] | type")
-
-              if [ "$value_type" = "object" ] || [ "$value_type" = "array" ]; then
-                var_value=$(echo "$SECRET_VALUE" | jq -c ".[\"$key\"]")
-              else
-                var_value=$(echo "$SECRET_VALUE" | jq -r ".[\"$key\"]")
-              fi
-
-              echo "$var_name=$var_value" >> $GITHUB_ENV
-            done
-
-            echo "vars_available=true" >> $GITHUB_OUTPUT
-          else
-            echo "::error::Secret $SECRET_NAME not found. Ensure 10_core layer is deployed and secret exists."
-            echo "vars_available=false" >> $GITHUB_OUTPUT
-            exit 1
-          fi
-
-      - name: Get backend bucket name from Secrets Manager
-        id: backend-config
-        env:
-          ENVIRONMENT: ${{ needs.detect-changes.outputs.environment }}
-        run: |
-          SECRET_NAME="/practice/${ENVIRONMENT}/backend-bucket"
-
-          if aws secretsmanager describe-secret --secret-id "$SECRET_NAME" &>/dev/null; then
-            SECRET_VALUE=$(aws secretsmanager get-secret-value \
-              --secret-id "$SECRET_NAME" \
-              --query SecretString --output text)
-            BUCKET_NAME=$(echo "$SECRET_VALUE" | jq -r '.bucket')
-
-            if [ -n "$BUCKET_NAME" ] && [ "$BUCKET_NAME" != "null" ]; then
-              echo "bucket=$BUCKET_NAME" >> $GITHUB_OUTPUT
-              echo "backend_available=true" >> $GITHUB_OUTPUT
-            else
-              echo "backend_available=false" >> $GITHUB_OUTPUT
-            fi
-          else
-            ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-            BUCKET_NAME="tt-practice-tf-state-${ENVIRONMENT}-${ACCOUNT_ID}"
-            echo "bucket=$BUCKET_NAME" >> $GITHUB_OUTPUT
-            echo "backend_available=true" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Cache build artifacts
-        if: matrix.layer == '30_app'
-        uses: actions/cache@v4
-        with:
-          path: practice/out
-          key: ${{ runner.os }}-lambda-build-${{ hashFiles('practice/src/**/pyproject.toml', 'practice/src/**/*.py') }}
-          restore-keys: |
-            ${{ runner.os }}-lambda-build-
-
-      - name: Install shasum
-        if: matrix.layer == '30_app'
-        run: |
-          if ! command -v shasum &> /dev/null; then
-            sudo apt-get update
-            sudo apt-get install -y libdigest-sha-perl
-          fi
-
-      - name: Build Lambda packages
-        if: steps.backend-config.outputs.backend_available == 'true' && steps.terraform-vars.outputs.vars_available == 'true' && matrix.layer == '30_app'
-        working-directory: practice
-        run: |
-          chmod +x ./bin/cb
-          ./bin/cb build
-          chmod +x ./bin/verify-build-artifacts
-          ./bin/verify-build-artifacts .
-
-      - name: Terraform Init
-        if: steps.backend-config.outputs.backend_available == 'true' && steps.terraform-vars.outputs.vars_available == 'true'
-        working-directory: practice/deploy/${{ matrix.layer }}/environments/${{ needs.detect-changes.outputs.environment }}
-        run: |
-          terraform init -backend-config="bucket=${{ steps.backend-config.outputs.bucket }}"
-
-      - name: Terraform Validate
-        if: steps.backend-config.outputs.backend_available == 'true' && steps.terraform-vars.outputs.vars_available == 'true'
-        working-directory: practice/deploy/${{ matrix.layer }}/environments/${{ needs.detect-changes.outputs.environment }}
-        run: terraform validate
-
-      - name: Terraform Plan
-        if: steps.backend-config.outputs.backend_available == 'true' && steps.terraform-vars.outputs.vars_available == 'true'
-        working-directory: practice/deploy/${{ matrix.layer }}/environments/${{ needs.detect-changes.outputs.environment }}
-        run: |
-          terraform plan -no-color -out=tfplan -lock-timeout=60s
+          layer: 10_core
+          environment: ${{ needs.detect-changes.outputs.environment }}
 
       - name: Terraform Apply
-        if: steps.backend-config.outputs.backend_available == 'true' && steps.terraform-vars.outputs.vars_available == 'true'
-        working-directory: practice/deploy/${{ matrix.layer }}/environments/${{ needs.detect-changes.outputs.environment }}
-        run: |
-          terraform apply -auto-approve tfplan
+        if: steps.secrets.outputs.backend_available == 'true' && steps.secrets.outputs.vars_available == 'true'
+        uses: ./.github/actions/terraform-apply
+        with:
+          layer: 10_core
+          environment: ${{ needs.detect-changes.outputs.environment }}
+          backend-bucket: ${{ steps.secrets.outputs.backend_bucket }}
+
+  apply-20-infra:
+    name: Apply Terraform - 20_infra (${{ needs.detect-changes.outputs.environment }})
+    needs: [detect-changes, apply-10-core]
+    runs-on: ubuntu-latest
+    environment: ${{ needs.detect-changes.outputs.environment }}
+    if: needs.detect-changes.outputs.has_20_infra == 'true' && (needs.detect-changes.outputs.has_10_core == 'false' || always() && (needs.apply-10-core.result == 'success' || needs.apply-10-core.result == 'failure' || needs.apply-10-core.result == 'skipped'))
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: ./.github/actions/setup-terraform
+        with:
+          layer: 20_infra
+          environment: ${{ needs.detect-changes.outputs.environment }}
+          aws-role-arn: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          run-id: ${{ github.run_id }}
+
+      - name: Get Terraform Secrets
+        id: secrets
+        uses: ./.github/actions/get-terraform-secrets
+        with:
+          layer: 20_infra
+          environment: ${{ needs.detect-changes.outputs.environment }}
+
+      - name: Terraform Apply
+        if: steps.secrets.outputs.backend_available == 'true' && steps.secrets.outputs.vars_available == 'true'
+        uses: ./.github/actions/terraform-apply
+        with:
+          layer: 20_infra
+          environment: ${{ needs.detect-changes.outputs.environment }}
+          backend-bucket: ${{ steps.secrets.outputs.backend_bucket }}
+
+  apply-30-app:
+    name: Apply Terraform - 30_app (${{ needs.detect-changes.outputs.environment }})
+    needs: [detect-changes, apply-20-infra]
+    runs-on: ubuntu-latest
+    environment: ${{ needs.detect-changes.outputs.environment }}
+    if: needs.detect-changes.outputs.has_30_app == 'true' && (needs.detect-changes.outputs.has_20_infra == 'false' || always() && (needs.apply-20-infra.result == 'success' || needs.apply-20-infra.result == 'failure' || needs.apply-20-infra.result == 'skipped'))
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python Build Environment
+        uses: ./.github/actions/setup-python-build
+
+      - name: Setup Terraform
+        uses: ./.github/actions/setup-terraform
+        with:
+          layer: 30_app
+          environment: ${{ needs.detect-changes.outputs.environment }}
+          aws-role-arn: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          run-id: ${{ github.run_id }}
+
+      - name: Get Terraform Secrets
+        id: secrets
+        uses: ./.github/actions/get-terraform-secrets
+        with:
+          layer: 30_app
+          environment: ${{ needs.detect-changes.outputs.environment }}
+
+      - name: Build Lambda Packages
+        if: steps.secrets.outputs.backend_available == 'true' && steps.secrets.outputs.vars_available == 'true'
+        uses: ./.github/actions/build-lambda
+
+      - name: Terraform Apply
+        if: steps.secrets.outputs.backend_available == 'true' && steps.secrets.outputs.vars_available == 'true'
+        uses: ./.github/actions/terraform-apply
+        with:
+          layer: 30_app
+          environment: ${{ needs.detect-changes.outputs.environment }}
+          backend-bucket: ${{ steps.secrets.outputs.backend_bucket }}

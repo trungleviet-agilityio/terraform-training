@@ -17,6 +17,9 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       layers: ${{ steps.detect.outputs.layers }}
+      has_10_core: ${{ steps.detect.outputs.has_10_core }}
+      has_20_infra: ${{ steps.detect.outputs.has_20_infra }}
+      has_30_app: ${{ steps.detect.outputs.has_30_app }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -27,6 +30,9 @@ jobs:
         id: detect
         run: |
           CHANGED_LAYERS_ARR=()
+          HAS_10_CORE=false
+          HAS_20_INFRA=false
+          HAS_30_APP=false
 
           if git rev-parse --verify origin/${{ github.base_ref }} >/dev/null 2>&1; then
             CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
@@ -42,12 +48,15 @@ jobs:
           echo "$CHANGED_FILES"
           if echo "$CHANGED_FILES" | grep -q "^practice/deploy/10_core/"; then
             CHANGED_LAYERS_ARR+=("10_core")
+            HAS_10_CORE=true
           fi
           if echo "$CHANGED_FILES" | grep -q "^practice/deploy/20_infra/"; then
             CHANGED_LAYERS_ARR+=("20_infra")
+            HAS_20_INFRA=true
           fi
           if echo "$CHANGED_FILES" | grep -q "^practice/deploy/30_app/"; then
             CHANGED_LAYERS_ARR+=("30_app")
+            HAS_30_APP=true
           fi
 
           if [ ${#CHANGED_LAYERS_ARR[@]} -eq 0 ]; then
@@ -57,6 +66,9 @@ jobs:
 
           LAYERS_JSON=$(printf '%s\n' "${CHANGED_LAYERS_ARR[@]}" | jq -R . | jq -s -c . | tr -d '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
           echo "layers=$LAYERS_JSON" >> $GITHUB_OUTPUT
+          echo "has_10_core=$HAS_10_CORE" >> $GITHUB_OUTPUT
+          echo "has_20_infra=$HAS_20_INFRA" >> $GITHUB_OUTPUT
+          echo "has_30_app=$HAS_30_APP" >> $GITHUB_OUTPUT
 
           echo "Detected changed layers: ${CHANGED_LAYERS_ARR[*]}"
           echo "Layers JSON: $LAYERS_JSON"
@@ -130,133 +142,44 @@ jobs:
           chmod +x ../../../../bin/terraform-validate-no-backend
           ../../../../bin/terraform-validate-no-backend providers.tf
 
-      - name: Configure AWS credentials (for plan)
-        uses: aws-actions/configure-aws-credentials@v4
+  plan-10-core:
+    name: Plan Terraform - 10_core
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    if: needs.detect-changes.outputs.has_10_core == 'true' && needs.detect-changes.outputs.layers != '["skip"]'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: ./.github/actions/setup-terraform
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          layer: 10_core
+          environment: dev
+          aws-role-arn: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ secrets.AWS_REGION }}
-          role-session-name: GitHubActions-TerraformPlan-${{ github.run_id }}
+          run-id: ${{ github.run_id }}
 
-      - name: Get Terraform variables from Secrets Manager
-        id: terraform-vars
-        env:
-          ENVIRONMENT: dev
-          LAYER: ${{ matrix.layer }}
-        run: |
-          SECRET_NAME="/practice/${ENVIRONMENT}/${LAYER}/terraform-vars"
-
-          if aws secretsmanager describe-secret --secret-id "$SECRET_NAME" &>/dev/null; then
-            SECRET_VALUE=$(aws secretsmanager get-secret-value \
-              --secret-id "$SECRET_NAME" \
-              --query SecretString --output text)
-
-            echo "$SECRET_VALUE" | jq -r 'to_entries[] | "\(.key)|\(.value | tostring)"' | while IFS='|' read -r key value_json; do
-              var_name="TF_VAR_$key"
-              value_type=$(echo "$SECRET_VALUE" | jq -r ".[\"$key\"] | type")
-
-              if [ "$value_type" = "object" ] || [ "$value_type" = "array" ]; then
-                var_value=$(echo "$SECRET_VALUE" | jq -c ".[\"$key\"]")
-              else
-                var_value=$(echo "$SECRET_VALUE" | jq -r ".[\"$key\"]")
-              fi
-
-              echo "$var_name=$var_value" >> $GITHUB_ENV
-            done
-
-            echo "vars_available=true" >> $GITHUB_OUTPUT
-          else
-            echo "::error::Secret $SECRET_NAME not found. Ensure 10_core layer is deployed and secret exists."
-            echo "vars_available=false" >> $GITHUB_OUTPUT
-            exit 1
-          fi
-
-      - name: Get backend bucket name from Secrets Manager
-        id: backend-config
-        env:
-          ENVIRONMENT: dev
-        run: |
-          SECRET_NAME="/practice/${ENVIRONMENT}/backend-bucket"
-
-          if aws secretsmanager describe-secret --secret-id "$SECRET_NAME" &>/dev/null; then
-            SECRET_VALUE=$(aws secretsmanager get-secret-value \
-              --secret-id "$SECRET_NAME" \
-              --query SecretString --output text)
-            BUCKET_NAME=$(echo "$SECRET_VALUE" | jq -r '.bucket')
-
-            if [ -n "$BUCKET_NAME" ] && [ "$BUCKET_NAME" != "null" ]; then
-              echo "bucket=$BUCKET_NAME" >> $GITHUB_OUTPUT
-              echo "backend_available=true" >> $GITHUB_OUTPUT
-            else
-              echo "backend_available=false" >> $GITHUB_OUTPUT
-            fi
-          else
-            ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-            BUCKET_NAME="tt-practice-tf-state-${ENVIRONMENT}-${ACCOUNT_ID}"
-            echo "bucket=$BUCKET_NAME" >> $GITHUB_OUTPUT
-            echo "backend_available=true" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Cache build artifacts
-        if: matrix.layer == '30_app'
-        id: cache-build
-        uses: actions/cache@v4
+      - name: Get Terraform Secrets
+        id: secrets
+        uses: ./.github/actions/get-terraform-secrets
         with:
-          path: practice/out
-          key: ${{ runner.os }}-lambda-build-${{ hashFiles('practice/src/**/pyproject.toml', 'practice/src/**/*.py') }}
-          restore-keys: |
-            ${{ runner.os }}-lambda-build-
-
-      - name: Install shasum
-        if: matrix.layer == '30_app'
-        run: |
-          if ! command -v shasum &> /dev/null; then
-            sudo apt-get update
-            sudo apt-get install -y libdigest-sha-perl
-          fi
-
-      - name: Build Lambda packages
-        if: steps.backend-config.outputs.backend_available == 'true' && steps.terraform-vars.outputs.vars_available == 'true' && matrix.layer == '30_app'
-        working-directory: practice
-        run: |
-          chmod +x ./bin/cb
-          ./bin/cb build
-          chmod +x ./bin/verify-build-artifacts
-          ./bin/verify-build-artifacts .
-
-      - name: Terraform Init (with backend for plan)
-        if: steps.backend-config.outputs.backend_available == 'true' && steps.terraform-vars.outputs.vars_available == 'true'
-        working-directory: practice/deploy/${{ matrix.layer }}/environments/dev
-        run: |
-          terraform init -backend-config="bucket=${{ steps.backend-config.outputs.bucket }}"
-
-      - name: Verify build artifacts before plan
-        if: steps.backend-config.outputs.backend_available == 'true' && steps.terraform-vars.outputs.vars_available == 'true' && matrix.layer == '30_app'
-        working-directory: practice
-        run: |
-          chmod +x ./bin/verify-build-artifacts
-          ./bin/verify-build-artifacts .
+          layer: 10_core
+          environment: dev
 
       - name: Terraform Plan
-        if: steps.backend-config.outputs.backend_available == 'true' && steps.terraform-vars.outputs.vars_available == 'true'
-        id: terraform-plan
-        working-directory: practice/deploy/${{ matrix.layer }}/environments/dev
-        run: |
-          echo "Running terraform plan for ${{ matrix.layer }} layer..."
-          terraform plan -no-color -lock-timeout=30s > plan_output.txt 2>&1
-          PLAN_EXIT_CODE=${PIPESTATUS[0]}
-          echo "=== Terraform Plan Output ==="
-          cat plan_output.txt
-          echo "=== End Plan Output ==="
-          if [ $PLAN_EXIT_CODE -ne 0 ]; then
-            echo "::error::Terraform plan failed with exit code $PLAN_EXIT_CODE"
-            echo "Last 50 lines of plan output:"
-            tail -50 plan_output.txt || cat plan_output.txt
-            exit $PLAN_EXIT_CODE
-          fi
+        if: steps.secrets.outputs.backend_available == 'true' && steps.secrets.outputs.vars_available == 'true'
+        uses: ./.github/actions/terraform-plan
         continue-on-error: true
+        with:
+          layer: 10_core
+          environment: dev
+          backend-bucket: ${{ steps.secrets.outputs.backend_bucket }}
+          lock-timeout: 30s
+          save-plan: 'false'
 
       - name: Comment PR with Plan Output
-        if: github.event_name == 'pull_request' && steps.backend-config.outputs.backend_available == 'true' && steps.terraform-vars.outputs.vars_available == 'true' && always()
+        if: github.event_name == 'pull_request' && steps.secrets.outputs.backend_available == 'true' && steps.secrets.outputs.vars_available == 'true' && always()
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -264,12 +187,12 @@ jobs:
             const fs = require('fs');
             let planOutput = '';
             try {
-              planOutput = fs.readFileSync('practice/deploy/${{ matrix.layer }}/environments/dev/plan_output.txt', 'utf8');
+              planOutput = fs.readFileSync('practice/deploy/10_core/environments/dev/plan_output.txt', 'utf8');
             } catch (error) {
               planOutput = 'Plan output not available';
             }
 
-            const output = `#### Terraform Plan for \`${{ matrix.layer }}\` layer
+            const output = `#### Terraform Plan for \`10_core\` layer
             <details><summary>Show Plan</summary>
 
             \`\`\`
@@ -278,7 +201,150 @@ jobs:
 
             </details>
 
-            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`, Working Directory: \`practice/deploy/${{ matrix.layer }}/environments/dev\`, Workflow: \`${{ github.workflow }}\`*`;
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`, Working Directory: \`practice/deploy/10_core/environments/dev\`, Workflow: \`${{ github.workflow }}\`*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+
+  plan-20-infra:
+    name: Plan Terraform - 20_infra
+    needs: [detect-changes, plan-10-core]
+    runs-on: ubuntu-latest
+    if: needs.detect-changes.outputs.has_20_infra == 'true' && needs.detect-changes.outputs.layers != '["skip"]' && (needs.detect-changes.outputs.has_10_core == 'false' || always() && (needs.plan-10-core.result == 'success' || needs.plan-10-core.result == 'failure' || needs.plan-10-core.result == 'skipped'))
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: ./.github/actions/setup-terraform
+        with:
+          layer: 20_infra
+          environment: dev
+          aws-role-arn: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          run-id: ${{ github.run_id }}
+
+      - name: Get Terraform Secrets
+        id: secrets
+        uses: ./.github/actions/get-terraform-secrets
+        with:
+          layer: 20_infra
+          environment: dev
+
+      - name: Terraform Plan
+        if: steps.secrets.outputs.backend_available == 'true' && steps.secrets.outputs.vars_available == 'true'
+        uses: ./.github/actions/terraform-plan
+        continue-on-error: true
+        with:
+          layer: 20_infra
+          environment: dev
+          backend-bucket: ${{ steps.secrets.outputs.backend_bucket }}
+          lock-timeout: 30s
+          save-plan: 'false'
+
+      - name: Comment PR with Plan Output
+        if: github.event_name == 'pull_request' && steps.secrets.outputs.backend_available == 'true' && steps.secrets.outputs.vars_available == 'true' && always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            let planOutput = '';
+            try {
+              planOutput = fs.readFileSync('practice/deploy/20_infra/environments/dev/plan_output.txt', 'utf8');
+            } catch (error) {
+              planOutput = 'Plan output not available';
+            }
+
+            const output = `#### Terraform Plan for \`20_infra\` layer
+            <details><summary>Show Plan</summary>
+
+            \`\`\`
+            ${planOutput}
+            \`\`\`
+
+            </details>
+
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`, Working Directory: \`practice/deploy/20_infra/environments/dev\`, Workflow: \`${{ github.workflow }}\`*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+
+  plan-30-app:
+    name: Plan Terraform - 30_app
+    needs: [detect-changes, plan-20-infra]
+    runs-on: ubuntu-latest
+    if: needs.detect-changes.outputs.has_30_app == 'true' && needs.detect-changes.outputs.layers != '["skip"]' && (needs.detect-changes.outputs.has_20_infra == 'false' || always() && (needs.plan-20-infra.result == 'success' || needs.plan-20-infra.result == 'failure' || needs.plan-20-infra.result == 'skipped'))
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python Build Environment
+        uses: ./.github/actions/setup-python-build
+
+      - name: Setup Terraform
+        uses: ./.github/actions/setup-terraform
+        with:
+          layer: 30_app
+          environment: dev
+          aws-role-arn: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          run-id: ${{ github.run_id }}
+
+      - name: Get Terraform Secrets
+        id: secrets
+        uses: ./.github/actions/get-terraform-secrets
+        with:
+          layer: 30_app
+          environment: dev
+
+      - name: Build Lambda Packages
+        if: steps.secrets.outputs.backend_available == 'true' && steps.secrets.outputs.vars_available == 'true'
+        uses: ./.github/actions/build-lambda
+
+      - name: Terraform Plan
+        if: steps.secrets.outputs.backend_available == 'true' && steps.secrets.outputs.vars_available == 'true'
+        uses: ./.github/actions/terraform-plan
+        continue-on-error: true
+        with:
+          layer: 30_app
+          environment: dev
+          backend-bucket: ${{ steps.secrets.outputs.backend_bucket }}
+          lock-timeout: 30s
+          save-plan: 'false'
+
+      - name: Comment PR with Plan Output
+        if: github.event_name == 'pull_request' && steps.secrets.outputs.backend_available == 'true' && steps.secrets.outputs.vars_available == 'true' && always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            let planOutput = '';
+            try {
+              planOutput = fs.readFileSync('practice/deploy/30_app/environments/dev/plan_output.txt', 'utf8');
+            } catch (error) {
+              planOutput = 'Plan output not available';
+            }
+
+            const output = `#### Terraform Plan for \`30_app\` layer
+            <details><summary>Show Plan</summary>
+
+            \`\`\`
+            ${planOutput}
+            \`\`\`
+
+            </details>
+
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`, Working Directory: \`practice/deploy/30_app/environments/dev\`, Workflow: \`${{ github.workflow }}\`*`;
 
             github.rest.issues.createComment({
               issue_number: context.issue.number,
