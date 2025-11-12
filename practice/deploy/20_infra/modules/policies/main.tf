@@ -100,6 +100,7 @@ data "aws_iam_policy_document" "terraform_plan" {
       "lambda:ListTags",
       "lambda:GetLayerVersion",
       "lambda:ListVersionsByFunction",
+      "lambda:GetFunctionCodeSigningConfig",
 
       # API Gateway v2 permissions (HTTP API)
       "apigatewayv2:GetApi",
