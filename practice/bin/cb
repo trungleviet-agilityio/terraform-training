@@ -238,6 +238,24 @@ _detect_runtime_modules() {
   done
 }
 
+# Validate artifact sizes and warn if approaching AWS limits
+_validate_artifact_size() {
+  local zip_path="$1"
+  local artifact_type="$2"  # "app" or "layer"
+  local limit_mb="$3"        # 50 for app, 250 for layer
+
+  if [[ ! -f "$zip_path" ]]; then
+    return 0
+  fi
+
+  local size=$(stat -f%z "$zip_path" 2>/dev/null || stat -c%s "$zip_path" 2>/dev/null || echo "0")
+  local size_mb=$((size / 1024 / 1024))
+
+  if [[ $size_mb -gt $limit_mb ]]; then
+    _print_warning "    ${artifact_type^} zip size is ${size_mb}MB (Lambda limit: ${limit_mb}MB uncompressed)"
+  fi
+}
+
 # Build a runtime module (creates layer and app zips with signatures.json)
 # Can build modules from either src/runtime/ or src/lambda/
 _build_runtime_module() {
@@ -574,6 +592,12 @@ _build_runtime_module() {
     cd "$OLDPWD"
 
     echo "$LAYER_HASH" > "$LAYER_HASH_FILE"
+
+    # Validate layer zip size
+    _validate_artifact_size "$LAYER_OUTPUT_ZIP" "layer" 250
+  elif [[ -f "$LAYER_OUTPUT_ZIP" ]]; then
+    # Validate existing layer zip size even if not rebuilt
+    _validate_artifact_size "$LAYER_OUTPUT_ZIP" "layer" 250
   fi
 
   # Build app zip if needed
@@ -592,8 +616,14 @@ _build_runtime_module() {
 
     echo "$SOURCES_HASH" > "$APP_HASH_FILE"
 
+    # Validate app zip size
+    _validate_artifact_size "$APP_OUTPUT_ZIP" "app" 50
+
     # Clear trap since we're done with APP_TMP_DIR
     trap - EXIT INT TERM
+  elif [[ -f "$APP_OUTPUT_ZIP" ]]; then
+    # Validate existing app zip size even if not rebuilt
+    _validate_artifact_size "$APP_OUTPUT_ZIP" "app" 50
   fi
 
   # Step 5: Generate signatures.json
