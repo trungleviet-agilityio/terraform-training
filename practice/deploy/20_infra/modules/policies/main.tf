@@ -303,7 +303,8 @@ data "aws_iam_policy_document" "terraform_apply" {
 
     resources = [
       "arn:aws:lambda:${var.region}:${var.account_id}:function:*",
-      "arn:aws:lambda:${var.region}:${var.account_id}:layer:*:*"
+      "arn:aws:lambda:${var.region}:${var.account_id}:layer:*:*",
+      "arn:aws:lambda:${var.region}:${var.account_id}:event-source-mapping:*",
     ]
   }
 
@@ -418,7 +419,8 @@ data "aws_iam_policy_document" "terraform_apply" {
       "secretsmanager:ListSecrets",
       "secretsmanager:PutSecretValue",
       "secretsmanager:TagResource",
-      "secretsmanager:UntagResource"
+      "secretsmanager:UntagResource",
+      "secretsmanager:GetResourcePolicy",
     ]
 
     resources = local.secrets_manager_resources
