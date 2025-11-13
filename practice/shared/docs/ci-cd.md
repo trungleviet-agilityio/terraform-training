@@ -197,21 +197,19 @@ OIDC provider and IAM roles are managed via Terraform in the `20_infra` layer:
 
 ### State File Structure
 
+Each environment uses a separate S3 bucket, with each layer having its own state file:
+
 ```
-s3://terraform-state-bucket/
-├── 10_core/
-│   ├── dev/terraform.tfstate
-│   ├── stage/terraform.tfstate
-│   └── prod/terraform.tfstate
-├── 20_infra/
-│   ├── dev/terraform.tfstate
-│   ├── stage/terraform.tfstate
-│   └── prod/terraform.tfstate
-└── 30_app/
-    ├── dev/terraform.tfstate
-    ├── stage/terraform.tfstate
-    └── prod/terraform.tfstate
+s3://tt-practice-tf-state-{env}-{account-id}/
+├── core/terraform.tfstate      (10_core layer)
+├── infra/terraform.tfstate    (20_infra layer)
+└── app/terraform.tfstate       (30_app layer)
 ```
+
+**Bucket naming pattern**: `tt-practice-tf-state-{environment}-{account-id}`
+- Example: `tt-practice-tf-state-dev-057336397237`
+- Each environment (dev/stage/prod) has its own bucket
+- All layers within an environment share the same bucket
 
 ### State Locking
 
@@ -268,3 +266,9 @@ terraform apply
 3. Deploy layers in order: 10_core → 20_infra → 30_app
 4. Never commit state files or secrets
 5. Use OIDC authentication (no static credentials)
+
+## See Also
+
+- [Architecture Documentation](architecture.md) - System architecture overview
+- [Remote State Documentation](remote-state.md) - Terraform state management
+- [Operations Runbook](runbook.md) - Rollback procedures, log inspection, and troubleshooting

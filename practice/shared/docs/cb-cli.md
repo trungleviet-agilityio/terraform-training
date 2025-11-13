@@ -182,13 +182,13 @@ Runs a command in the package's environment with proper dependency management.
 **Examples**:
 ```bash
 # Run pytest in a Lambda package
-cb run lambda-api python -m pytest
+cb run api_server python -m pytest
 
 # Run a custom script
-cb run lambda-worker python process.py
+cb run worker python process.py
 
 # Run any command
-cb run lambda-api python -c "print('Hello')"
+cb run api_server python -c "print('Hello')"
 ```
 
 ## Options
@@ -211,7 +211,7 @@ cb deploy --env prod
 Limits the operation to a specific package or layer.
 
 **For `build` and `test`**:
-- Specify a package name (e.g., `lambda-api`, `lambda-worker`)
+- Specify a package name (e.g., `api_server`, `worker`, `cron_server`, `practice_util`)
 
 **For `deploy`**:
 - Specify a layer name: `core`, `infra`, or `app`
@@ -219,10 +219,10 @@ Limits the operation to a specific package or layer.
 **Examples**:
 ```bash
 # Build only one package
-cb build --only lambda-api
+cb build --only api_server
 
 # Test only one package
-cb test --only lambda-worker
+cb test --only worker
 
 # Deploy only core layer
 cb deploy --only core
@@ -418,3 +418,4 @@ If you see package size warnings:
 - [Architecture Documentation](architecture.md) - System architecture overview
 - [CI/CD Documentation](ci-cd.md) - Continuous integration workflows
 - [Remote State Documentation](remote-state.md) - Terraform state management
+- [Operations Runbook](runbook.md) - Troubleshooting and operations guidance
