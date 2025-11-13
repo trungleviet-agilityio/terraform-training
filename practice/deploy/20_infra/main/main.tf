@@ -1,3 +1,16 @@
+/***
+Main Module for the Infrastructure Layer
+
+This module is responsible for creating the infrastructure for the project.
+
+Resources:
+- API Gateway
+- SQS Queues
+- EventBridge Schedule
+- IAM Policies
+- IAM Roles
+*/
+
 # Get the AWS account ID and region
 data "aws_caller_identity" "current" {}
 

@@ -1,4 +1,14 @@
-# Get the AWS account ID and region
+/***
+Main Module for the Application Layer
+
+This module is responsible for creating the application for the project.
+
+Resources:
+- Lambda Functions
+- API Gateway Integration
+- EventBridge Target
+*/
+
 data "aws_caller_identity" "current" {}
 
 data "aws_region" "current" {}
