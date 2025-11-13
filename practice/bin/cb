@@ -303,11 +303,11 @@ _build_runtime_module() {
   # Install editable dependencies temporarily so uv export can resolve them
   if [[ -n "$practice_deps" ]]; then
     _print_info "    Installing editable dependencies for uv export resolution..."
-    
+
     # Create a temporary virtual environment with the correct Python version
     local TEMP_VENV=$(mktemp -d)
     trap "rm -rf '$TEMP_VENV'" EXIT INT TERM
-    
+
     _print_info "      - Creating temporary virtual environment with Python ${PYTHON_VERSION}..."
     uv venv "$TEMP_VENV" --python "python${PYTHON_VERSION}" || {
       _print_error "    Failed to create temporary virtual environment"
@@ -370,7 +370,7 @@ _build_runtime_module() {
     # Generate requirements file with uv (must use venv if created above)
     _print_info "    Generating requirements file with uv..."
     local REQUIREMENTS_FILE="$OUTPUT_DIR/requirements.txt"
-    
+
     # If we created a venv, use uv pip freeze to get all installed packages
     # Then filter out editable dependencies (they'll be included via symlinks)
     # Otherwise use uv export
@@ -389,7 +389,7 @@ _build_runtime_module() {
         return 1
       }
     fi
-    
+
     # Deactivate venv after generating requirements (no longer needed)
     if [[ -n "${VIRTUAL_ENV:-}" ]] && [[ "${VIRTUAL_ENV:-}" == "$TEMP_VENV"* ]]; then
       deactivate 2>/dev/null || true
@@ -545,6 +545,7 @@ _build_runtime_module() {
   if [[ -f "$LAYER_HASH_FILE" ]] && [[ -f "$LAYER_OUTPUT_ZIP" ]]; then
     local OLD_HASH=$(cat "$LAYER_HASH_FILE")
     if [[ "$OLD_HASH" == "$LAYER_HASH" ]]; then
+      _print_info "    No changes detected in layer. Skipping layer zip rebuild."
       REBUILD_LAYER_ZIP=false
     fi
   fi
@@ -554,6 +555,7 @@ _build_runtime_module() {
   if [[ -f "$APP_HASH_FILE" ]] && [[ -f "$APP_OUTPUT_ZIP" ]]; then
     local OLD_HASH=$(cat "$APP_HASH_FILE")
     if [[ "$OLD_HASH" == "$SOURCES_HASH" ]]; then
+      _print_info "    No changes detected in sources. Skipping app zip rebuild."
       REBUILD_APP=false
     fi
   fi
@@ -589,7 +591,7 @@ _build_runtime_module() {
     cd "$OLDPWD"
 
     echo "$SOURCES_HASH" > "$APP_HASH_FILE"
-    
+
     # Clear trap since we're done with APP_TMP_DIR
     trap - EXIT INT TERM
   fi
@@ -916,14 +918,14 @@ _deploy_layer() {
     _print_info "Initializing Terraform..."
     terraform init
   fi
-  
+
   # Plan
   _print_info "Running terraform plan..."
   if ! terraform plan -var-file=terraform.tfvars -out=tfplan; then
     _print_error "Terraform plan failed"
     return 1
   fi
-  
+
   # Apply
   _print_info "Applying Terraform changes..."
   if terraform apply tfplan; then
