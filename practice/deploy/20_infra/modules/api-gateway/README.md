@@ -1,17 +1,16 @@
 # API Gateway HTTP API Module
 
-This module creates an AWS API Gateway HTTP API with Lambda integration and optional custom domain support.
+This module creates an AWS API Gateway HTTP API with optional custom domain support. Lambda integration is handled separately in the `30_app` layer.
 
 ## Resources
 
 - API Gateway HTTP API (with optional CORS configuration)
 - API Gateway default stage
-- API Gateway integration with Lambda function
-- API Gateway routes (proxy integration)
-- Lambda permission for API Gateway to invoke
 - Custom domain name (optional)
 - API mapping to custom domain (optional)
 - Route53 A record for custom domain (optional)
+
+**Note**: Lambda integration, routes, and permissions are created separately in the `30_app` layer using the `api_gateway_integration` component.
 
 ## Usage
 
@@ -21,10 +20,8 @@ This module creates an AWS API Gateway HTTP API with Lambda integration and opti
 module "api_gateway" {
   source = "../modules/api-gateway"
 
-  project_name         = var.project_name
-  environment          = var.environment
-  lambda_function_arn = var.api_lambda_function_arn
-  lambda_function_name = var.api_lambda_function_name
+  project_name = var.project_name
+  environment  = var.environment
 
   tags = var.tags
 }
@@ -36,34 +33,38 @@ module "api_gateway" {
 module "api_gateway" {
   source = "../modules/api-gateway"
 
-  project_name         = var.project_name
-  environment          = var.environment
-  lambda_function_arn = var.api_lambda_function_arn
-  lambda_function_name = var.api_lambda_function_name
+  project_name = var.project_name
+  environment  = var.environment
 
   custom_domain_config = {
     certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/abc123"
     domain_name     = "api.dev.example.com"
     hosted_zone_id  = "Z1234567890ABC"  # Optional: Creates Route53 A record if provided
   }
-  
+
   tags = var.tags
 }
 ```
 
+**Note**: Lambda integration is created separately in the `30_app` layer using the `api_gateway_integration` component. This module only creates the API Gateway HTTP API itself.
+
 ## Variables
 
-- `project_name`: Project name for resource naming
-- `environment`: Environment name
-- `lambda_function_arn`: ARN of the Lambda function to integrate
-- `lambda_function_name`: Name of the Lambda function
-- `api_name`: Optional custom name for the API (default: `${project_name}-${environment}-api`)
-- `cors_configuration`: Optional CORS configuration (configured directly in API resource)
-- `custom_domain_config`: Optional custom domain configuration
-  - `certificate_arn`: ACM certificate ARN (must be in us-east-1 for API Gateway)
-  - `domain_name`: Custom domain name (e.g., api.dev.example.com)
-  - `hosted_zone_id`: Route53 hosted zone ID (optional, creates A record if provided)
-- `tags`: Tags to apply to resources
+- `project_name` (required): Project name for resource naming
+- `environment` (required): Environment name
+- `api_name` (optional): Custom name for the API. Default: `${project_name}-${environment}-api`
+- `cors_configuration` (optional): CORS configuration object with:
+  - `allow_credentials` (optional): Allow credentials. Default: `false`
+  - `allow_headers` (optional): List of allowed headers. Default: `["*"]`
+  - `allow_methods` (optional): List of allowed methods. Default: `["*"]`
+  - `allow_origins` (optional): List of allowed origins. Default: `["*"]`
+  - `expose_headers` (optional): List of exposed headers. Default: `[]`
+  - `max_age` (optional): Max age in seconds. Default: `86400`
+- `custom_domain_config` (optional): Custom domain configuration object with:
+  - `certificate_arn` (required): ACM certificate ARN (must be in us-east-1 for API Gateway)
+  - `domain_name` (required): Custom domain name (e.g., api.dev.example.com)
+  - `hosted_zone_id` (optional): Route53 hosted zone ID (creates A record if provided)
+- `tags` (optional): Tags to apply to resources. Default: `{}`
 
 ## Outputs
 
@@ -119,7 +120,7 @@ module "api_gateway" {
 ## Notes
 
 - Uses HTTP API (not REST API) for better performance and lower cost
-- Default route: `$default` with proxy integration to Lambda
+- Lambda integration is created in the `30_app` layer using the `api_gateway_integration` component
 - Custom domain is completely optional - API works with default endpoint
 - Certificate MUST be in us-east-1 for API Gateway custom domains
 - Route53 A record is created automatically if `hosted_zone_id` is provided

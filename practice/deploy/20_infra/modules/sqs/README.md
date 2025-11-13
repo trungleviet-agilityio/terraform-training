@@ -24,7 +24,7 @@ module "sqs" {
   message_retention_seconds  = 345600  # 4 days
   visibility_timeout_seconds = 30
   max_receive_count          = 3
-  
+
   tags = var.tags
 }
 ```
@@ -36,7 +36,7 @@ module "sqs" {
 - `queue_name`: Name of the queue (default: "main")
 - `enable_dlq`: Whether to create a Dead Letter Queue (default: true)
 - `message_retention_seconds`: How long messages are retained (default: 4 days)
-- `visibility_timeout_seconds`: Visibility timeout (default: 30 seconds)
+- `visibility_timeout_seconds`: Visibility timeout (default: 360 seconds / 6 minutes - AWS recommends 6x Lambda timeout for event source mapping)
 - `receive_wait_time_seconds`: Long polling wait time (default: 0 = short polling)
 - `max_receive_count`: Max times a message can be received before moving to DLQ (default: 3)
 - `dlq_message_retention_seconds`: DLQ message retention (default: 14 days)

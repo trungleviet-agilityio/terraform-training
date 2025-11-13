@@ -33,6 +33,13 @@ module "state_backend" {
 }
 ```
 
+## Variables
+
+- `project_name` (required): Project name for resource naming
+- `environment` (required): Environment name (e.g., dev, stage, prod)
+- `unique_suffix` (required): Unique suffix to ensure bucket name is globally unique (e.g., account ID)
+- `tags` (optional): Tags to apply to all resources. Default: `{}`
+
 ## Outputs
 
 - `bucket_name`: Name of the S3 bucket
@@ -51,4 +58,3 @@ module "state_backend" {
 - State files are encrypted at rest
 - DynamoDB table has encryption enabled
 - IAM policies should be configured separately to restrict access
-

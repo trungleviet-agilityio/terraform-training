@@ -29,7 +29,7 @@ practice/
 │   ├── diagrams/        # Architecture diagrams
 │   └── docs/            # Documentation (architecture.md, ci-cd.md)
 └── bin/                 # Developer CLI tools
-    └── cb               # Build/Deploy CLI (to be implemented)
+    └── cb               # Build/Deploy CLI
 ```
 
 ## Architecture Layers
@@ -82,7 +82,7 @@ Environments import their respective `main/` modules and pass environment-specif
 
 ### Bootstrap Remote State
 
-S3 bucket and DynamoDB table for Terraform state will be created via Terraform modules in `10_core/modules/` (to be implemented). See `shared/docs/remote-state.md` for details.
+S3 bucket and DynamoDB table for Terraform state are created via Terraform modules in `10_core/modules/s3/`. See `shared/docs/remote-state.md` for bootstrap details.
 
 ### Deploy Infrastructure
 
@@ -108,23 +108,13 @@ Use the helper script to scaffold a new environment for a layer:
 
 ### Developer CLI
 
-The `bin/cb` CLI will provide shortcuts for build/test/deploy workflows (to be implemented).
+The `bin/cb` CLI provides shortcuts for build/test/deploy workflows. See `shared/docs/cb-cli.md` for usage.
 
 ## Documentation
 
-- **Architecture**: `shared/docs/architecture.md`
-- **CI/CD**: `shared/docs/ci-cd.md`
-- **State Bootstrap**: `shared/docs/remote-state.md`
-- **Layer Structure**: `shared/docs/layer-structure.md` (Understanding layer organization)
+- **Architecture**: `shared/docs/architecture.md` - System architecture and design
+- **CI/CD**: `shared/docs/ci-cd.md` - GitHub Actions workflows
+- **Remote State**: `shared/docs/remote-state.md` - Terraform state management
+- **CLI Tool**: `shared/docs/cb-cli.md` - Developer CLI usage
+- **Operations**: `shared/docs/runbook.md` - Rollback procedures and troubleshooting
 - **Diagram**: `shared/diagrams/architecture.png`
-
-## Next Steps
-
-This is the initial project structure. Implementation will proceed layer by layer:
-
-1. [DONE] Project structure and scaffolding
-2. [TODO] Core layer resources (KMS, tags, base IAM)
-3. [TODO] Infrastructure layer (API Gateway, SQS, EventBridge)
-4. [TODO] Application layer (Lambda functions with Lambda Layers)
-5. [TODO] CI/CD workflows (GitHub Actions)
-6. [TODO] Developer CLI (`cb` tool)

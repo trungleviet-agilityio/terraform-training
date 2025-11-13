@@ -189,53 +189,53 @@ module "lambda_sqs_worker" {
 
 ```
 Component Architecture:
-┌──────────────────────────────────────────────────────────┐
-│ Components (deploy/components/)                          │
-├──────────────────────────────────────────────────────────┤
-│ lambda_python_module                                     │
-│   └─ Packages Python modules → Lambda layers + app zips  │
-│      (creates layers for dependencies, separates code)   │
-│                                                          │
-│ lambda_fastapi_server                                    │
-│   └─ Creates FastAPI Lambda + Function URL (optional)    │
-│                                                          │
-│ lambda_cron_server                                       │
-│   └─ Creates cron Lambda for EventBridge                 │
-│                                                          │
-│ lambda_sqs_worker                                        │
-│   └─ Creates SQS worker Lambda + event source mapping    │
-│                                                          │
-│ api_gateway_integration                                  │
-│   └─ Creates API Gateway integration + route + permission│
-│                                                          │
-│ eventbridge_target                                       │
-│   └─ Creates EventBridge schedule + IAM role + target    │
-└──────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────┐
+│ Components (deploy/components/)                               │
+├───────────────────────────────────────────────────────────────┤
+│ lambda_python_module                                          │
+│   └─ Packages Python modules → Lambda layers + app zips       │
+│      (creates layers for dependencies, separates code)        │
+│                                                               │
+│ lambda_fastapi_server                                         │
+│   └─ Creates FastAPI Lambda + Function URL (optional)         │
+│                                                               │
+│ lambda_cron_server                                            │
+│   └─ Creates cron Lambda for EventBridge                      │
+│                                                               │
+│ lambda_sqs_worker                                             │
+│   └─ Creates SQS worker Lambda + event source mapping         │
+│                                                               │
+│ api_gateway_integration                                       │
+│   └─ Creates API Gateway integration + route + permission     │
+│                                                               │
+│ eventbridge_target                                            │
+│   └─ Creates EventBridge schedule + IAM role + target         │
+└───────────────────────────────────────────────────────────────┘
                           ↓ used by
 ┌───────────────────────────────────────────────────────────────┐
 │ Modules (deploy/30_app/modules/)                              │
 ├───────────────────────────────────────────────────────────────┤
 │ runtime_code_modules                                          │
-│   └─ Uses: lambda_python_module (×4)                    │
+│   └─ Uses: lambda_python_module (×4)                          │
 │      (packages practice_util, api_server, cron_server, worker)│
-│                                                         │
-│ api_server                                              │
-│   └─ Uses: lambda_fastapi_server + practice_util layer │
-│                                                         │
-│ cron_server                                             │
-│   └─ Uses: lambda_cron_server + practice_util layer   │
-│                                                         │
-│ worker                                                  │
-│   └─ Uses: lambda_sqs_worker + practice_util layer     │
-└─────────────────────────────────────────────────────────┘
+│                                                               │
+│ api_server                                                    │
+│   └─ Uses: lambda_fastapi_server + practice_util layer        │
+│                                                               │
+│ cron_server                                                   │
+│   └─ Uses: lambda_cron_server + practice_util layer           │
+│                                                               │
+│ worker                                                        │
+│   └─ Uses: lambda_sqs_worker + practice_util layer            │
+└───────────────────────────────────────────────────────────────┘
                           ↓ used by
-┌─────────────────────────────────────────────────────────┐
-│ Main Module (deploy/30_app/main/)                       │
-├─────────────────────────────────────────────────────────┤
-│ Uses integration components:                            │
-│   ├─ api_gateway_integration                            │
-│   └─ eventbridge_target                                 │
-└─────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────┐
+│ Main Module (deploy/30_app/main/)                             │
+├───────────────────────────────────────────────────────────────┤
+│ Uses integration components:                                  │
+│   ├─ api_gateway_integration                                  │
+│   └─ eventbridge_target                                       │
+└───────────────────────────────────────────────────────────────┘
 ```
 
 ### Request Flow
@@ -526,3 +526,10 @@ def lambda_handler(event, context):
 **See**: 
 - `deploy/10_core/modules/dns/README.md` - DNS module documentation
 - `deploy/20_infra/modules/api-gateway/README.md` - API Gateway custom domain setup
+
+## See Also
+
+- [CI/CD Documentation](ci-cd.md) - Continuous integration workflows
+- [Remote State Documentation](remote-state.md) - Terraform state management
+- [CLI Tool Documentation](cb-cli.md) - Developer CLI usage
+- [Operations Runbook](runbook.md) - Rollback procedures, log inspection, and troubleshooting
