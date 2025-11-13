@@ -1,4 +1,13 @@
-# Get AWS account ID for constructing bucket name
+/***
+Main Module for the Development Environment
+
+This module is responsible for creating the development environment for the project.
+
+Resources:
+- Remote State from 20_infra layer
+- Main Module from 30_app layer
+*/
+
 data "aws_caller_identity" "current" {}
 
 # Get remote state from 20_infra layer
