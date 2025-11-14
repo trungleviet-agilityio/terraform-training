@@ -9,6 +9,10 @@ GitHub Actions workflows for Terraform validation, planning, and deployment usin
 - **Purpose**: Validate Terraform code and generate plans
 - **Path Filters**: `practice/deploy/**`, `.github/workflows/ci.yml`
 - **Execution Model**: Sequential (10_core → 20_infra → 30_app)
+- **Dependency Enforcement**: Workflows enforce sequential execution to respect layer dependencies:
+  - `plan-20-infra` waits for `plan-10-core` to complete
+  - `plan-30-app` waits for `plan-20-infra` to complete
+  - This ensures remote state dependencies are available before planning dependent layers
 - **Steps**:
   1. Detect changed layers (10_core, 20_infra, 30_app)
   2. Validate all changed layers in parallel:
@@ -29,6 +33,10 @@ GitHub Actions workflows for Terraform validation, planning, and deployment usin
 - **Purpose**: Apply Terraform changes
 - **Path Filters**: `practice/deploy/**`, `.github/workflows/apply.yml`
 - **Execution Model**: Sequential (10_core → 20_infra → 30_app)
+- **Dependency Enforcement**: Workflows enforce sequential execution to respect layer dependencies:
+  - `apply-20-infra` waits for `apply-10-core` to complete
+  - `apply-30-app` waits for `apply-20-infra` to complete
+  - This ensures remote state outputs are available before deploying dependent layers
 - **Steps**:
   1. Detect changed layers and determine environment (default: dev)
   2. Apply changed layers sequentially:

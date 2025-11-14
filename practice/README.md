@@ -24,7 +24,7 @@ practice/
 ├── src/                 # Application source code
 │   ├── lambda/          # Lambda function code
 │   ├── dynamodb/        # DynamoDB schemas/scripts
-│   └── utils/           # Shared utilities
+│   └── runtime/         # Shared runtime modules (e.g., practice_util)
 ├── shared/              # Shared documentation
 │   ├── diagrams/        # Architecture diagrams
 │   └── docs/            # Documentation (architecture.md, ci-cd.md)

@@ -96,7 +96,7 @@ See individual module README files for detailed usage and examples.
 
    **Note on Permissions**: Local development typically uses AWS credentials with broader permissions (admin/root or full access), while CI/CD uses restricted least-privilege IAM roles. If `terraform plan` works locally but fails in CI/CD, check that the `terraform-plan` role has all necessary read permissions. See `shared/docs/ci-cd.md` for details on permission differences.
 
-2. **Remote State**: S3 bucket and DynamoDB table will be created via Terraform modules in `10_core/modules/` (to be implemented)
+2. **Remote State**: S3 bucket and DynamoDB table are created via Terraform modules in `10_core/modules/s3/`
 
 3. **Backend Configuration**: 
    - Backend bucket name stored in AWS Secrets Manager: `/practice/{env}/backend-bucket`
@@ -206,15 +206,42 @@ terraform apply -var-file=terraform.tfvars
 Use the helper script to scaffold a new environment for any layer:
 
 ```bash
+cd deploy
 ./scripts/create_environment.sh <layer> <environment>
-# Example:
-./scripts/create_environment.sh 20_infra staging
+# Examples:
+./scripts/create_environment.sh 10_core stage
+./scripts/create_environment.sh 20_infra prod
+./scripts/create_environment.sh 30_app staging
 ```
 
 This will:
 - Copy `dev` environment configuration as a template
-- Update environment name in `terraform.tfvars`
+- Update environment name in `terraform.tfvars.example`
 - Update state key in `providers.tf` backend configuration
+
+**After creating a new environment**:
+
+1. **For 10_core layer** (must be done first):
+   ```bash
+   cd 10_core/environments/<env>
+   # Copy and customize terraform.tfvars
+   cp terraform.tfvars.example terraform.tfvars
+   # Edit terraform.tfvars with environment-specific values
+   # Bootstrap with local state first (see bootstrap instructions above)
+   ```
+
+2. **For 20_infra and 30_app layers**:
+   ```bash
+   cd <layer>/environments/<env>
+   # Copy and customize terraform.tfvars
+   cp terraform.tfvars.example terraform.tfvars
+   # Update backend.tfvars with correct bucket name (from 10_core outputs)
+   # Initialize and deploy
+   terraform init -backend-config=backend.tfvars
+   terraform plan -var-file=terraform.tfvars
+   ```
+
+**Note**: Each environment requires its own S3 state bucket. The bucket is created when you deploy the `10_core` layer for that environment. Ensure `10_core` is deployed before deploying other layers.
 
 #### Environment Variables
 
@@ -243,11 +270,57 @@ This separation allows:
 - Layer-specific state management
 - Easier debugging and rollback
 
-**Remote State Usage**: Layers use `terraform_remote_state` to share outputs automatically:
-- **20_infra** gets backend configuration from **10_core** (no manual `backend_config` needed)
-- **30_app** gets SQS queue ARN from **20_infra** (no manual configuration needed)
+## Layer Dependencies
 
-See `shared/docs/terraform-state-and-backend.md` for detailed information about remote state usage.
+The three layers follow a **one-way dependency flow**: `10_core → 20_infra → 30_app`
+
+### Dependency Flow
+
+```
+10_core (Foundation)
+    ↓ (provides outputs via remote state)
+20_infra (Platform Services)
+    ↓ (provides outputs via remote state)
+30_app (Application Workloads)
+    ↓ (no reverse dependencies)
+```
+
+### How Dependencies Work
+
+**10_core → 20_infra**:
+- `20_infra` reads `10_core` remote state for:
+  - Backend configuration (S3 bucket ARN, DynamoDB table ARN, account ID)
+  - DNS certificate ARN and hosted zone (for API Gateway custom domain)
+- Implementation: `20_infra/environments/dev/main.tf` uses `data.terraform_remote_state.core`
+
+**20_infra → 30_app**:
+- `30_app` reads `20_infra` remote state for:
+  - API Gateway ID and execution ARN (for API Gateway integration)
+  - SQS queue ARN (for worker Lambda event source mapping)
+  - Lambda IAM role ARNs (api, cron, worker)
+  - DynamoDB table names/ARNs (for Lambda environment variables and IAM permissions)
+- Implementation: `30_app/environments/dev/main.tf` uses `data.terraform_remote_state.infra`
+
+**30_app → (no reverse dependencies)**:
+- `30_app` creates Lambda functions and integrates them with platform services **within its own layer**
+- API Gateway integration (routes, integration, Lambda permission) is created in `30_app` using the `api_gateway_integration` component
+- EventBridge schedule creation happens in `30_app` using the `eventbridge_target` component
+- **No outputs from `30_app` are consumed by `20_infra`** - this avoids circular dependencies
+
+### Why This Structure?
+
+1. **Clear Separation**: Each layer has a distinct responsibility
+2. **No Circular Dependencies**: One-way flow prevents dependency cycles
+3. **Independent Deployment**: Layers can be deployed independently (following the order)
+4. **Integration in Application Layer**: Lambda integrations are created where Lambda functions are defined, keeping related resources together
+
+### Remote State Usage
+
+Layers use `terraform_remote_state` to share outputs automatically:
+- **20_infra** gets backend configuration from **10_core** (no manual `backend_config` needed)
+- **30_app** gets platform service outputs from **20_infra** (API Gateway, SQS, IAM roles, DynamoDB)
+
+See `shared/docs/remote-state.md` for detailed information about remote state usage.
 
 ### Backend Configuration Pattern
 
