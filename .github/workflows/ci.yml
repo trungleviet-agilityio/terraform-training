@@ -213,7 +213,9 @@ jobs:
     name: Plan Terraform - 20_infra
     needs: [detect-changes, plan-10-core]
     runs-on: ubuntu-latest
-    if: needs.detect-changes.outputs.has_20_infra == 'true' && needs.detect-changes.outputs.layers != '["skip"]' && (needs.detect-changes.outputs.has_10_core == 'false' || always() && (needs.plan-10-core.result == 'success' || needs.plan-10-core.result == 'failure' || needs.plan-10-core.result == 'skipped'))
+    # Run if: 20_infra has changes AND (10_core has no changes OR 10_core job completed)
+    # This enforces sequential execution: 10_core → 20_infra
+    if: needs.detect-changes.outputs.has_20_infra == 'true' && needs.detect-changes.outputs.layers != '["skip"]' && (needs.detect-changes.outputs.has_10_core == 'false' || needs.plan-10-core.result != 'cancelled')
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -281,7 +283,9 @@ jobs:
     name: Plan Terraform - 30_app
     needs: [detect-changes, plan-20-infra]
     runs-on: ubuntu-latest
-    if: needs.detect-changes.outputs.has_30_app == 'true' && needs.detect-changes.outputs.layers != '["skip"]' && (needs.detect-changes.outputs.has_20_infra == 'false' || always() && (needs.plan-20-infra.result == 'success' || needs.plan-20-infra.result == 'failure' || needs.plan-20-infra.result == 'skipped'))
+    # Run if: 30_app has changes AND (20_infra has no changes OR 20_infra job completed)
+    # This enforces sequential execution: 20_infra → 30_app
+    if: needs.detect-changes.outputs.has_30_app == 'true' && needs.detect-changes.outputs.layers != '["skip"]' && (needs.detect-changes.outputs.has_20_infra == 'false' || needs.plan-20-infra.result != 'cancelled')
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
