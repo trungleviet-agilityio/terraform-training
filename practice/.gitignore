@@ -1,0 +1,27 @@
+# Terraform files
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+backend.tfvars
+plan_output.txt
+.terraform/
+.terraform.lock.hcl
+
+# Build artifacts (optional - uncomment if you don't want to commit build outputs)
+# out/
+
+# Environment files
+.env
+.env.local
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
