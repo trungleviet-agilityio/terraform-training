@@ -43,6 +43,7 @@ resource "aws_iam_role_policy" "invoke_lambda" {
 
 # EventBridge Schedule with Target
 # Creates the schedule with Lambda target in 30_app layer
+# Note: This resource depends on the Lambda function existing (enforced via depends_on in calling module)
 resource "aws_scheduler_schedule" "this" {
   name        = var.schedule_name
   description = "Schedule with Lambda target (managed by 30_app layer)"

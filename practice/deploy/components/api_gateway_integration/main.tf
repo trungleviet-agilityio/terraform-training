@@ -1,4 +1,5 @@
 # API Gateway integration with Lambda
+# Note: This resource depends on the Lambda function existing (enforced via depends_on in calling module)
 resource "aws_apigatewayv2_integration" "lambda" {
   api_id = var.api_gateway_id
 

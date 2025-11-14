@@ -51,17 +51,9 @@ module "api_server" {
 
 ## Integration with API Gateway
 
-The `invoke_arn` output is designed for API Gateway integration in the `20_infra` layer:
+API Gateway integration happens **within the 30_app layer** using the `api_gateway_integration` component. The API Gateway HTTP API itself is created in the `20_infra` layer, but the integration (routes, integration, Lambda permission) is created in `30_app` to avoid circular dependencies.
 
-```hcl
-# In 20_infra layer
-module "api_gateway" {
-  source = "../modules/api-gateway"
-  lambda_function_arn  = data.terraform_remote_state.app.outputs.api_lambda_function_arn
-  lambda_function_name = data.terraform_remote_state.app.outputs.api_lambda_function_name
-  # ... other config
-}
-```
+The integration is typically created in the module that uses this `api_server` module, passing the API Gateway ID and execution ARN from the `20_infra` layer via remote state.
 
 ## Handler Requirements
 
@@ -87,6 +79,6 @@ def lambda_handler(event, context):
 
 - This module wraps the `lambda_fastapi_server` component
 - Package information comes from `runtime_code_modules` module
-- Role comes from `lambda_roles` module
-- Function ARN is output for use in `20_infra` API Gateway integration
+- Role comes from `20_infra` layer via remote state (lambda_api_role_arn)
+- API Gateway integration is created in the `30_app` layer using the `api_gateway_integration` component
 - Default timeout is 30 seconds (adjust based on API response time requirements)

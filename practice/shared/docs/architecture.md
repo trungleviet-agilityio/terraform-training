@@ -44,9 +44,11 @@ Application workloads and compute resources:
 - Event source mappings and triggers
 - Lambda layers (for zip deployment mode)
 
-**Dependencies**: Requires `10_core` and `20_infra` outputs (including Lambda role ARNs).
+**Dependencies**: Requires `10_core` and `20_infra` outputs (including Lambda role ARNs, API Gateway, SQS, DynamoDB).
 
-**Remote State Usage**: Uses `terraform_remote_state` to automatically retrieve SQS queue ARN and Lambda role ARNs from `20_infra` layer. See `deploy/30_app/environments/dev/main.tf` for implementation.
+**Remote State Usage**: Uses `terraform_remote_state` to automatically retrieve SQS queue ARN, Lambda role ARNs, API Gateway ID/execution ARN, and DynamoDB table information from `20_infra` layer. See `deploy/30_app/environments/dev/main.tf` for implementation.
+
+**Integration Creation**: API Gateway integrations and EventBridge schedules are created **within the 30_app layer** to avoid circular dependencies. The API Gateway HTTP API itself is created in `20_infra`, but routes, integrations, and Lambda permissions are created in `30_app` where the Lambda functions are defined.
 
 #### Lambda Module Structure
 
@@ -71,13 +73,13 @@ The application layer follows a modular architecture with reusable components:
 **Lambda Functions**:
 1. **API Server** (`api_server`): FastAPI application for HTTP API requests
    - Handler: `api_server.lambda_handler`
-   - Triggered by: API Gateway (configured in `20_infra` layer)
-   - Outputs: Function ARN for API Gateway integration
+   - Triggered by: API Gateway (HTTP API created in `20_infra`, integration created in `30_app`)
+   - Integration: API Gateway routes and integration created in `30_app` using `api_gateway_integration` component
 
 2. **Cron Server** (`cron_server`): Scheduled tasks via EventBridge
    - Handler: `cron_server.lambda_handler`
-   - Triggered by: EventBridge schedule (configured in `20_infra` layer)
-   - Outputs: Function ARN for EventBridge integration
+   - Triggered by: EventBridge schedule (created in `30_app` layer using `eventbridge_target` component)
+   - Integration: EventBridge schedule created in `30_app` to avoid circular dependencies
 
 3. **Worker** (`worker`): Processes messages from SQS queue
    - Handler: `worker.lambda_handler`

@@ -50,18 +50,9 @@ module "cron_server" {
 
 ## Integration with EventBridge
 
-The function ARN is output for use in EventBridge schedule creation in the `20_infra` layer:
+EventBridge schedule creation happens **within the 30_app layer** using the `eventbridge_target` component. This ensures the Lambda function exists before creating the schedule and avoids circular dependencies.
 
-```hcl
-# In 20_infra layer
-module "eventbridge_schedule" {
-  source = "../modules/eventbridge"
-  schedule_expression  = "cron(0 12 * * ? *)"  # Daily at 12:00 PM UTC
-  lambda_function_arn  = data.terraform_remote_state.app.outputs.cron_lambda_function_arn
-  lambda_function_name = data.terraform_remote_state.app.outputs.cron_lambda_function_name
-  # ... other config
-}
-```
+The schedule is typically created in the module that uses this `cron_server` module, passing the schedule expression from configuration.
 
 ## Handler Requirements
 
@@ -88,7 +79,6 @@ def lambda_handler(event, context):
 
 - This module wraps the `lambda_cron_server` component
 - Package information comes from `runtime_code_modules` module
-- Role comes from `lambda_roles` module
+- Role comes from `20_infra` layer via remote state (lambda_cron_role_arn)
 - Default timeout is 60 seconds (longer than API Lambda for batch operations)
-- Function ARN is output for use in `20_infra` EventBridge integration
-- EventBridge schedule creation happens in the `20_infra` layer
+- EventBridge schedule creation happens in the `30_app` layer using the `eventbridge_target` component
