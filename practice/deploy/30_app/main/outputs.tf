@@ -15,11 +15,12 @@ output "common_tags" {
   description = "Common tags applied by app layer."
 }
 
-# Lambda function outputs for integration with 20_infra layer
-# Note: These are used by 20_infra via direct module reference, not remote state
+# Lambda function outputs (for reference/debugging only)
+# Note: These outputs are NOT consumed by other layers. API Gateway and EventBridge integrations
+# are created within the 30_app layer itself using the api_gateway_integration and eventbridge_target components.
 output "api_lambda_function_arn" {
   value       = module.api_server.function_arn
-  description = "ARN of the API Lambda function (for API Gateway integration)"
+  description = "ARN of the API Lambda function (for reference/debugging only)"
 }
 
 output "api_lambda_function_name" {

@@ -85,6 +85,7 @@ module "worker" {
 
 
 # API Gateway Integration (connects API Gateway from 20_infra to API Lambda)
+# Explicitly depends on api_server module to ensure Lambda function exists before creating integration
 module "api_gateway_integration" {
   count  = var.api_gateway_id != "" && var.api_gateway_execution_arn != "" ? 1 : 0
   source = "../../components/api_gateway_integration"
@@ -100,10 +101,15 @@ module "api_gateway_integration" {
     { path = "/events", method = "GET" },
     { path = "/events", method = "POST" },
   ]
+
+  depends_on = [
+    module.api_server
+  ]
 }
 
 
 # EventBridge Target (creates schedule with Lambda target)
+# Explicitly depends on cron_server module to ensure Lambda function exists before creating schedule
 module "eventbridge_target" {
   count  = var.eventbridge_schedule_expression != "" ? 1 : 0
   source = "../../components/eventbridge_target"
@@ -116,4 +122,8 @@ module "eventbridge_target" {
   lambda_function_name = module.cron_server.function_name
 
   tags = local.common_tags
+
+  depends_on = [
+    module.cron_server
+  ]
 }
