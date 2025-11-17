@@ -1,0 +1,23 @@
+sequenceDiagram
+    participant User
+    participant Route53 as Route53 DNS<br/>(Optional)
+    participant APIGW as API Gateway<br/>HTTP API
+    participant LambdaAPI as Lambda<br/>API Server
+    participant DynamoDB as DynamoDB<br/>Tables
+    participant SQS as SQS Queue
+    participant LambdaWorker as Lambda<br/>Worker
+
+    User->>Route53: HTTPS Request<br/>(api.dev.example.com)
+    Route53->>APIGW: DNS Resolution
+    User->>APIGW: HTTPS Request<br/>(Default Endpoint)
+    APIGW->>LambdaAPI: Invoke Function<br/>(GET/POST /users, /events)
+    LambdaAPI->>DynamoDB: Read/Write Data
+    DynamoDB-->>LambdaAPI: Data Response
+    LambdaAPI->>SQS: Send Message<br/>(Async Processing)
+    LambdaAPI-->>APIGW: HTTP Response
+    APIGW-->>User: JSON Response
+
+    SQS->>LambdaWorker: Event Source Mapping<br/>(Trigger)
+    LambdaWorker->>DynamoDB: Process & Update Data
+    DynamoDB-->>LambdaWorker: Confirmation
+    LambdaWorker-->>SQS: Message Processed

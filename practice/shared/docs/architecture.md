@@ -10,33 +10,59 @@ The infrastructure is organized into three layers, each deployed independently:
 
 ### 10_core - Foundation Layer
 Shared foundation resources:
-- Standard tags and naming conventions
-- Optional KMS CMK for encryption
-- Base IAM roles and policies
-- CloudWatch log retention settings
-- AWS account/region data sources
+- **S3 Bucket**: Terraform state backend storage
+  - Versioning enabled
+  - Server-side encryption (AES256)
+  - Public access blocked
+  - Lifecycle rules for old versions
+- **DynamoDB Table**: Terraform state locking
+  - Pay-per-request billing mode
+  - Primary key: `LockID` (string)
+  - Server-side encryption enabled
+  - **Note**: This is for Terraform state locking, NOT application data
+- **CloudWatch Log Retention**: Default log retention policy (14 days)
 - **Route53 DNS** (optional): Hosted zone and ACM certificate for custom domains
+  - Supports both default region and us-east-1 (for API Gateway certificates)
+- **AWS Secrets Manager**: Secrets for CI/CD automation
+  - Backend bucket name secret: `/practice/{env}/backend-bucket`
+  - Terraform variables secrets for each layer: `/practice/{env}/{layer}/terraform-vars`
+  - Optional KMS encryption (uses AWS default key if not specified)
+- Standard tags and naming conventions
+- AWS account/region data sources
 
 **Deployment Order**: Must be deployed **first** before other layers.
 
 ### 20_infra - Platform Services Layer
 Platform services that applications depend on:
-- API Gateway HTTP API
+- **API Gateway HTTP API**
   - Optional custom domain with Route53 integration
   - Automatic DNS record creation when DNS module is configured
-- SQS queues (standard + DLQ)
-- EventBridge schedules
-- DynamoDB tables (shared application data)
+  - Default endpoint: `https://{api-id}.execute-api.{region}.amazonaws.com`
+- **SQS Queues**
+  - Standard queue for message processing
+  - Dead Letter Queue (DLQ) for failed messages
+  - CloudWatch alarm for DLQ message monitoring (optional)
+- **DynamoDB Tables** (optional): Shared application data storage
+  - Key-value tables for simple lookups
+  - Time-series tables with TTL support
+  - Tables created only if configured in `terraform.tfvars`
 - **IAM Roles and Policies** for Lambda functions
   - Lambda execution roles (API, Cron, Worker)
-  - DynamoDB access policies
-  - SQS access policies
+  - DynamoDB access policies (conditional, only if tables exist)
+  - SQS access policies (always created)
+  - Secrets Manager access policies (for secret consumption)
+- **OIDC Provider** (optional): GitHub Actions authentication
+  - Creates OIDC provider for GitHub Actions
+  - Enables passwordless CI/CD authentication
+  - Creates Terraform plan/apply IAM roles (if configured)
 
-**Dependencies**: Requires `10_core` outputs (tags, account ID, region, DNS certificate ARN if custom domain enabled).
+**Note**: EventBridge schedules are **NOT** created in this layer. Schedule creation is handled in `30_app` layer to avoid circular dependencies. Schedule expression configuration can still be defined in `terraform.tfvars` and passed to `30_app`.
+
+**Dependencies**: Requires `10_core` outputs (tags, account ID, region, DNS certificate ARN if custom domain enabled, backend bucket/table ARNs).
 
 **Remote State Usage**: Uses `terraform_remote_state` to automatically retrieve backend configuration from `10_core` layer and DNS certificate for custom domain setup. See `deploy/20_infra/environments/dev/main.tf` for implementation.
 
-**Outputs**: Exposes Lambda role ARNs for `30_app` layer consumption via remote state.
+**Outputs**: Exposes Lambda role ARNs, API Gateway ID/ARN, SQS queue ARN, and DynamoDB table ARNs for `30_app` layer consumption via remote state.
 
 ### 30_app - Application Layer
 Application workloads and compute resources:
@@ -305,21 +331,44 @@ Lambda (SQS Worker)
 - **DynamoDB**: NoSQL database for application data
   - Key-value tables for simple lookups (user data, configuration)
   - Time-series tables for events, logs, metrics (with TTL support)
-  - Tables created in `20_infra` layer as shared resources
+  - Tables created in `20_infra` layer as shared resources (optional)
   - Lambda functions have IAM permissions to read/write DynamoDB tables
-- **S3**: Terraform state storage (backend)
+- **S3**: 
+  - Terraform state storage (backend) - created in `10_core` layer
+  - Versioning, encryption, and lifecycle management enabled
 
 ### Security & Access
-- **IAM**: Roles and policies for Lambda functions
-- **KMS**: Customer-managed keys for encryption (optional)
+- **IAM**: Roles and policies for Lambda functions and GitHub Actions
+  - Lambda execution roles with least-privilege policies
+  - GitHub Actions OIDC roles for CI/CD (optional)
+- **KMS**: Optional customer-managed keys for Secrets Manager encryption
+  - If not specified, AWS Secrets Manager uses the default AWS-managed key
+- **Secrets Manager**: Secure storage for sensitive configuration
+  - Backend bucket names for CI/CD
+  - Terraform variables for automated workflows
+  - Application secrets (API keys, database credentials, etc.)
 
 ### Observability
-- **CloudWatch**: Logs and metrics for all services
-- **CloudWatch Logs**: Centralized logging
+- **CloudWatch Logs**: Centralized logging for all Lambda functions
+  - Log retention policy: 14 days (configurable, set in `10_core` layer)
+  - Automatic log group creation for Lambda functions
+- **CloudWatch Metrics & Alarms**: Service metrics and monitoring
+  - SQS DLQ alarm (monitors failed messages in Dead Letter Queue)
+  - Lambda function metrics (invocations, errors, duration)
+  - API Gateway metrics (requests, latency, errors)
 
 ### State Management
-- **S3**: Remote state storage
+- **S3**: Remote state storage (created in `10_core` layer)
+  - Bucket naming: `{project_name}-tf-state-{environment}-{account_id}`
+  - State key structure: `core/terraform.tfstate`, `infra/terraform.tfstate`, `app/terraform.tfstate`
+  - Versioning enabled for state file history
+  - Encryption at rest (AES256)
+  - Lifecycle rules to expire old versions after 90 days
 - **DynamoDB**: State locking to prevent concurrent modifications
+  - Table name: `{project_name}-tf-locks`
+  - Primary key: `LockID` (string)
+  - Pay-per-request billing mode
+  - Server-side encryption enabled
 
 ## Data Flow
 
