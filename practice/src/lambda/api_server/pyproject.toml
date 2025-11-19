@@ -1,0 +1,16 @@
+[project]
+name = "api-server"
+version = "0.1.0"
+description = "API Server Lambda function"
+requires-python = ">=3.13"
+
+dependencies = [
+    "practice-util",
+    # Uncomment when ready to use FastAPI:
+    # "fastapi>=0.109.0",
+    # "mangum>=0.17.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

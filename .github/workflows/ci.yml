@@ -1,0 +1,357 @@
+name: Terraform CI
+
+on:
+  pull_request:
+    paths:
+      - 'practice/deploy/**'
+      - '.github/workflows/ci.yml'
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  detect-changes:
+    name: Detect Changed Layers
+    runs-on: ubuntu-latest
+    outputs:
+      layers: ${{ steps.detect.outputs.layers }}
+      has_10_core: ${{ steps.detect.outputs.has_10_core }}
+      has_20_infra: ${{ steps.detect.outputs.has_20_infra }}
+      has_30_app: ${{ steps.detect.outputs.has_30_app }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect changed layers
+        id: detect
+        run: |
+          CHANGED_LAYERS_ARR=()
+          HAS_10_CORE=false
+          HAS_20_INFRA=false
+          HAS_30_APP=false
+
+          if git rev-parse --verify origin/${{ github.base_ref }} >/dev/null 2>&1; then
+            CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          else
+            if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+              CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
+            else
+              CHANGED_FILES=$(git diff --name-only --diff-filter=A HEAD || git ls-files practice/deploy/)
+            fi
+          fi
+
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+          if echo "$CHANGED_FILES" | grep -q "^practice/deploy/10_core/"; then
+            CHANGED_LAYERS_ARR+=("10_core")
+            HAS_10_CORE=true
+          fi
+          if echo "$CHANGED_FILES" | grep -q "^practice/deploy/20_infra/"; then
+            CHANGED_LAYERS_ARR+=("20_infra")
+            HAS_20_INFRA=true
+          fi
+          if echo "$CHANGED_FILES" | grep -q "^practice/deploy/30_app/"; then
+            CHANGED_LAYERS_ARR+=("30_app")
+            HAS_30_APP=true
+          fi
+
+          if [ ${#CHANGED_LAYERS_ARR[@]} -eq 0 ]; then
+            echo "No Terraform layer changes detected. Skipping workflow."
+            CHANGED_LAYERS_ARR=("skip")
+          fi
+
+          LAYERS_JSON=$(printf '%s\n' "${CHANGED_LAYERS_ARR[@]}" | jq -R . | jq -s -c . | tr -d '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          echo "layers=$LAYERS_JSON" >> $GITHUB_OUTPUT
+          echo "has_10_core=$HAS_10_CORE" >> $GITHUB_OUTPUT
+          echo "has_20_infra=$HAS_20_INFRA" >> $GITHUB_OUTPUT
+          echo "has_30_app=$HAS_30_APP" >> $GITHUB_OUTPUT
+
+          echo "Detected changed layers: ${CHANGED_LAYERS_ARR[*]}"
+          echo "Layers JSON: $LAYERS_JSON"
+
+  validate:
+    name: Validate Terraform - ${{ matrix.layer }}
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    if: needs.detect-changes.outputs.layers != '["skip"]'
+    strategy:
+      fail-fast: false
+      matrix:
+        layer: ${{ fromJson(needs.detect-changes.outputs.layers) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ~> 1.5.0
+          terraform_wrapper: false
+
+      - name: Cache Terraform providers
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.terraform.d/plugins
+            practice/deploy/${{ matrix.layer }}/environments/dev/.terraform
+          key: ${{ runner.os }}-terraform-${{ matrix.layer }}-${{ hashFiles('practice/deploy/${{ matrix.layer }}/**/versions.tf', 'practice/deploy/${{ matrix.layer }}/**/providers.tf') }}
+          restore-keys: |
+            ${{ runner.os }}-terraform-${{ matrix.layer }}-
+            ${{ runner.os }}-terraform-
+
+      - name: Setup Python
+        if: matrix.layer == '30_app'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install UV
+        if: matrix.layer == '30_app'
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Cache UV Python installations
+        if: matrix.layer == '30_app'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.local/share/uv/python
+            ~/.cache/uv
+          key: ${{ runner.os }}-uv-python-${{ hashFiles('practice/src/**/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-python-
+
+      - name: Install Python 3.13 via UV
+        if: matrix.layer == '30_app'
+        run: |
+          uv python install 3.13
+
+      - name: Terraform Format Check
+        working-directory: practice/deploy/${{ matrix.layer }}/environments/dev
+        run: terraform fmt -check -recursive || (echo "::error::Terraform files are not formatted. Run 'terraform fmt' to fix." && exit 1)
+
+      - name: Terraform Validate (No Backend)
+        working-directory: practice/deploy/${{ matrix.layer }}/environments/dev
+        run: |
+          chmod +x ../../../../bin/terraform-validate-no-backend
+          ../../../../bin/terraform-validate-no-backend providers.tf
+
+  plan-10-core:
+    name: Plan Terraform - 10_core
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    if: needs.detect-changes.outputs.has_10_core == 'true' && needs.detect-changes.outputs.layers != '["skip"]'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: ./.github/actions/setup-terraform
+        with:
+          layer: 10_core
+          environment: dev
+          aws-role-arn: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          run-id: ${{ github.run_id }}
+
+      - name: Get Terraform Secrets
+        id: secrets
+        uses: ./.github/actions/get-terraform-secrets
+        with:
+          layer: 10_core
+          environment: dev
+
+      - name: Terraform Plan
+        if: steps.secrets.outputs.backend_available == 'true' && steps.secrets.outputs.vars_available == 'true'
+        uses: ./.github/actions/terraform-plan
+        continue-on-error: true
+        with:
+          layer: 10_core
+          environment: dev
+          backend-bucket: ${{ steps.secrets.outputs.backend_bucket }}
+          lock-timeout: 30s
+          save-plan: 'false'
+
+      - name: Comment PR with Plan Output
+        if: github.event_name == 'pull_request' && steps.secrets.outputs.backend_available == 'true' && steps.secrets.outputs.vars_available == 'true' && always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            let planOutput = '';
+            try {
+              planOutput = fs.readFileSync('practice/deploy/10_core/environments/dev/plan_output.txt', 'utf8');
+            } catch (error) {
+              planOutput = 'Plan output not available';
+            }
+
+            const output = `#### Terraform Plan for \`10_core\` layer
+            <details><summary>Show Plan</summary>
+
+            \`\`\`
+            ${planOutput}
+            \`\`\`
+
+            </details>
+
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`, Working Directory: \`practice/deploy/10_core/environments/dev\`, Workflow: \`${{ github.workflow }}\`*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+
+  plan-20-infra:
+    name: Plan Terraform - 20_infra
+    needs: [detect-changes, plan-10-core]
+    runs-on: ubuntu-latest
+    # Run if: 20_infra has changes AND (10_core has no changes OR 10_core job completed)
+    # This enforces sequential execution: 10_core → 20_infra
+    if: needs.detect-changes.outputs.has_20_infra == 'true' && needs.detect-changes.outputs.layers != '["skip"]' && (needs.detect-changes.outputs.has_10_core == 'false' || needs.plan-10-core.result != 'cancelled')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: ./.github/actions/setup-terraform
+        with:
+          layer: 20_infra
+          environment: dev
+          aws-role-arn: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          run-id: ${{ github.run_id }}
+
+      - name: Get Terraform Secrets
+        id: secrets
+        uses: ./.github/actions/get-terraform-secrets
+        with:
+          layer: 20_infra
+          environment: dev
+
+      - name: Terraform Plan
+        if: steps.secrets.outputs.backend_available == 'true' && steps.secrets.outputs.vars_available == 'true'
+        uses: ./.github/actions/terraform-plan
+        continue-on-error: true
+        with:
+          layer: 20_infra
+          environment: dev
+          backend-bucket: ${{ steps.secrets.outputs.backend_bucket }}
+          lock-timeout: 30s
+          save-plan: 'false'
+
+      - name: Comment PR with Plan Output
+        if: github.event_name == 'pull_request' && steps.secrets.outputs.backend_available == 'true' && steps.secrets.outputs.vars_available == 'true' && always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            let planOutput = '';
+            try {
+              planOutput = fs.readFileSync('practice/deploy/20_infra/environments/dev/plan_output.txt', 'utf8');
+            } catch (error) {
+              planOutput = 'Plan output not available';
+            }
+
+            const output = `#### Terraform Plan for \`20_infra\` layer
+            <details><summary>Show Plan</summary>
+
+            \`\`\`
+            ${planOutput}
+            \`\`\`
+
+            </details>
+
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`, Working Directory: \`practice/deploy/20_infra/environments/dev\`, Workflow: \`${{ github.workflow }}\`*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+
+  plan-30-app:
+    name: Plan Terraform - 30_app
+    needs: [detect-changes, plan-20-infra]
+    runs-on: ubuntu-latest
+    # Run if: 30_app has changes AND (20_infra has no changes OR 20_infra job completed)
+    # This enforces sequential execution: 20_infra → 30_app
+    if: needs.detect-changes.outputs.has_30_app == 'true' && needs.detect-changes.outputs.layers != '["skip"]' && (needs.detect-changes.outputs.has_20_infra == 'false' || needs.plan-20-infra.result != 'cancelled')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python Build Environment
+        uses: ./.github/actions/setup-python-build
+
+      - name: Setup Terraform
+        uses: ./.github/actions/setup-terraform
+        with:
+          layer: 30_app
+          environment: dev
+          aws-role-arn: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          run-id: ${{ github.run_id }}
+
+      - name: Get Terraform Secrets
+        id: secrets
+        uses: ./.github/actions/get-terraform-secrets
+        with:
+          layer: 30_app
+          environment: dev
+
+      - name: Build Lambda Packages
+        if: steps.secrets.outputs.backend_available == 'true' && steps.secrets.outputs.vars_available == 'true'
+        uses: ./.github/actions/build-lambda
+
+      - name: Terraform Plan
+        if: steps.secrets.outputs.backend_available == 'true' && steps.secrets.outputs.vars_available == 'true'
+        uses: ./.github/actions/terraform-plan
+        continue-on-error: true
+        with:
+          layer: 30_app
+          environment: dev
+          backend-bucket: ${{ steps.secrets.outputs.backend_bucket }}
+          lock-timeout: 30s
+          save-plan: 'false'
+
+      - name: Comment PR with Plan Output
+        if: github.event_name == 'pull_request' && steps.secrets.outputs.backend_available == 'true' && steps.secrets.outputs.vars_available == 'true' && always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            let planOutput = '';
+            try {
+              planOutput = fs.readFileSync('practice/deploy/30_app/environments/dev/plan_output.txt', 'utf8');
+            } catch (error) {
+              planOutput = 'Plan output not available';
+            }
+
+            const output = `#### Terraform Plan for \`30_app\` layer
+            <details><summary>Show Plan</summary>
+
+            \`\`\`
+            ${planOutput}
+            \`\`\`
+
+            </details>
+
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`, Working Directory: \`practice/deploy/30_app/environments/dev\`, Workflow: \`${{ github.workflow }}\`*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })

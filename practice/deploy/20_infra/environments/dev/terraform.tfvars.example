@@ -1,0 +1,81 @@
+# Core Configuration
+# ===================
+# These variables can be set via:
+#   1. TF_VAR_* environment variables (recommended for local development)
+#   2. AWS Secrets Manager (/practice/{env}/terraform-vars-20_infra) for CI/CD
+#   3. This terraform.tfvars file (local development only, gitignored)
+#
+# Variables have defaults in variables.tf. Override them here or via environment variables.
+# For local development, copy this file to terraform.tfvars and set your values.
+
+# Uncomment and set your values, or use TF_VAR_* environment variables:
+# aws_region   = "your-aws-region"      # e.g., "ap-southeast-1" (or set TF_VAR_aws_region)
+# project_name = "your-project-name"    # e.g., "tt-practice" (or set TF_VAR_project_name)
+# environment  = "your-environment"     # e.g., "dev", "stage", "prod" (or set TF_VAR_environment)
+
+# GitHub OIDC Configuration (grouped)
+# ===================================
+# Configure these to enable GitHub Actions authentication via OIDC
+# Can be set via TF_VAR_github_oidc_config environment variable (JSON string)
+# or uncomment and configure here:
+# github_oidc_config = {
+#   organization      = "your-github-org"      # Set your GitHub organization
+#   repository        = "your-repository"      # Set your repository name
+#   create_oidc       = true                   # Set to true to create OIDC provider
+#   create_policies   = true                   # Set to true to create Terraform policies
+#   create_plan_role  = true                   # Set to true to create plan role
+#   create_apply_role = true                   # Set to true to create apply role
+#   # allowed_branches  = ["main", "develop"]  # Optional: Restrict to specific branches
+# }
+
+# Backend Configuration
+# =====================
+# Backend configuration is automatically retrieved from 10_core layer using terraform_remote_state
+# in main.tf. No manual configuration needed here.
+#
+# The backend_config is constructed from 10_core outputs:
+# - bucket_arn: Retrieved from 10_core state_backend_bucket_arn output
+# - table_arn: Retrieved from 10_core state_backend_dynamodb_table_arn output
+# - account_id: Retrieved from 10_core account_id output
+#
+# Make sure 10_core layer is deployed before deploying 20_infra layer.
+# See shared/docs/terraform-state-and-backend.md for detailed information about remote state usage.
+
+# Note: The following configurations use sub-module defaults and don't need to be specified:
+# - SQS queue_name = "main" (module default)
+# - SQS enable_dlq = true (module default)
+# - SQS is always created for practice project
+# - API Gateway HTTP API is always created (integrations are added in 30_app layer)
+# - EventBridge schedules are created in 30_app layer, not here
+
+# Optional: DynamoDB Tables Configuration
+# ========================================
+# Configure tables as needed for your application
+# Can be set via TF_VAR_dynamodb_tables environment variable (JSON string)
+# or uncomment and configure here. See modules/dynamodb/README.md for detailed configuration options
+#
+# Uses default from variables.tf if not specified. Uncomment to override:
+# dynamodb_tables = {
+#   # Example: Key-value table for user data
+#   "user-data" = {
+#     partition_key = "user_id"
+#     type          = "key-value"
+#     attribute_types = {
+#       user_id = "S"
+#     }
+#     enable_point_in_time_recovery = true
+#   }
+#
+#   # Example: Time-series table for events
+#   "events" = {
+#     partition_key = "event_type"
+#     sort_key      = "timestamp"
+#     type          = "time-series"
+#     attribute_types = {
+#       event_type = "S"
+#       timestamp  = "N"
+#     }
+#     enable_ttl = true
+#     ttl_attribute = "ttl"
+#   }
+# }

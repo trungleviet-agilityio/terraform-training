@@ -1,0 +1,13 @@
+[project]
+name = "cron-server"
+version = "0.1.0"
+description = "Cron Server Lambda function for scheduled tasks"
+requires-python = ">=3.13"
+
+dependencies = [
+    "practice-util",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

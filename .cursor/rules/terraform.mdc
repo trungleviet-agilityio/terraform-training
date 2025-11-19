@@ -1,0 +1,156 @@
+---
+alwaysApply: true
+---
+  You are an expert in Terraform and Infrastructure as Code (IaC) for cloud platforms such as AWS, Azure, and GCP.
+
+  1. Key Principles
+  - Follow a layered architecture:
+    - `10_core` → foundational AWS infrastructure (networking, logging, buckets).
+    - `20_infra` → platform-level services (API Gateway, SQS, EventBridge, etc.).
+    - `30_app` → application-specific resources (Lambda, layers, etc.).
+  - Each layer must have:
+    - `main/` for root configuration (main.tf, variables.tf, outputs.tf, locals.tf).
+    - `modules/` for reusable components.
+    - `environments/` for deployment configurations per environment.
+  - Avoid hardcoded values — use variables, locals, and outputs.
+  - Lock provider and module versions in versions.tf.
+  - Ensure consistent formatting and structure across all layers (`terraform fmt`, `terraform validate`).
+
+  2. Repository Structure (expected)
+  ```
+    practice/
+    ├── bin/
+    ├── deploy/
+    │ ├── 10_core/
+    │ ├── 20_infra/
+    │ ├── 30_app/
+    │ ├── components/
+    │ ├── scripts/
+    │ └── README.md
+    ├── shared/
+    ├── src/
+    ├── out/
+    └── README.md
+  ```
+  - Notes:
+    - `main/` folders are treated as root modules for deployment.
+    - `environments/` contain `backend.tf`, `terraform.tfvars`, and environment-specific overrides.
+    - `modules/` are reusable and versioned, with each module containing a `README.md`.
+
+  3. Terraform Best Practices
+  - Use remote S3 backends for state management with DynamoDB for state locking.
+  - Always enable encryption for both S3 state bucket and DynamoDB table.
+  - Separate environments by folder (dev, stage, prod) or Terraform workspaces.
+  - Organize resources by logical domain (e.g., networking, IAM, compute, serverless).
+  - Run terraform fmt, terraform validate, tflint, and tfsec before commits.
+  - Store sensitive information in AWS Secrets Manager or SSM Parameter Store.
+  - Apply consistent naming conventions and resource tagging across all environments.
+  - Use environment variable injection or OIDC authentication in CI/CD to avoid long-lived credentials.
+  - Example S3 Backend Configuration
+    ```
+    terraform {
+      backend "s3" {
+        bucket         = "mycompany-terraform-state"
+        key            = "deploy/10_core/dev/terraform.tfstate"
+        region         = "ap-southeast-1"
+        dynamodb_table = "terraform-locks"
+        encrypt        = true
+        }
+      }
+    ```
+
+  4. Error Handling and Validation
+  - Define validation blocks in variables to enforce value correctness.
+  - Handle optional inputs using `try(`), `coalesce()`, and `null` defaults.
+  - Use `depends_on` sparingly for explicit dependencies not inferred automatically.
+  - Use `locals` for complex computed logic to improve readability.
+  - Example:
+    ```
+    variable "environment" {
+      type = string
+      validation {
+        condition     = contains(["dev", "stage", "prod"], var.environment)
+        error_message = "Environment must be one of: dev, stage, prod."
+      }
+    }
+    ```
+
+  5. Module Guidelines
+  - Split infrastructure into reusable modules (e.g., `vpc`, `lambda`, `s3`).
+  - Include `README.md`, `variables.tf`, and `outputs.tf` in each module.
+  - Apply semantic versioning to maintain compatibility and track changes.
+  - Use outputs to pass data between modules; avoid circular dependencies.
+  - Avoid hardcoded identifiers or ARNs; parameterize using variables.
+
+  6. Security Practices
+  - Never store credentials or secrets in Terraform files.
+  - Use AWS Secrets Manager or SSM Parameter Store for secret management.
+  - Enforce encryption for all storage and data-in-transit:
+    - S3: `server_side_encryption_configuration`
+    - RDS: `storage_encrypted = true`
+    - EBS: `encrypted = true`
+  - Use least privilege IAM policies; separate Terraform roles for CI/CD.
+  - Enable CloudTrail and CloudWatch logging for auditing changes.
+  - Restrict network ingress (avoid `0.0.0.0/0` unless explicitly needed).
+
+  - S3 & DynamoDB Backend Security
+    - Enable S3 versioning, block public access, and SSE-KMS encryption.
+    - Create a DynamoDB table with PAY_PER_REQUEST billing mode and primary key `LockID`.
+    - Restrict access via IAM policies allowing only `GetObject`, `PutObject`, and `DescribeTable`.
+
+  7. Performance Optimization
+  - Use `terraform apply -target` only when necessary for faster iteration.
+  - Cache Terraform provider plugins locally or within CI.
+  - Minimize repetitive data lookups with shared outputs or locals.
+  - Avoid overuse of `count` or `for_each` when static resource definitions suffice.
+
+  8. Testing and CI/CD Integration
+  - Integrate Terraform with GitHub Actions for automation.
+  - Automate: `terraform fmt`, `validate`, `tflint`, and `plan` in CI pipelines.
+  - Run `terraform plan` for all pull requests and require approval for production applies.
+  - Use `Terratest` for module testing and validation.
+  - Example GitHub Actions Job
+    ```
+    name: Terraform CI
+    on: [pull_request]
+    jobs:
+    terraform:
+    runs-on: ubuntu-latest
+    permissions:
+    id-token: write
+    contents: read
+    steps:
+    - uses: actions/checkout@v4
+    - uses: hashicorp/setup-terraform@v3
+    - run: terraform fmt -check
+    - run: terraform init -backend=false
+    - run: terraform validate
+    - run: tflint --deep
+    - run: terraform plan -out=tfplan
+    ```
+
+  9. Tagging & Naming Conventions
+  - Define standard tags in locals.tf and apply to all resources.
+  ```
+  locals {
+    common_tags = {
+    Environment = var.environment
+    Layer = var.layer
+    Project = "terraform-practice"
+    ManagedBy = "Terraform"
+    }
+  }
+  ```
+  - Apply `tags = local.common_tags` to all taggable resources.
+  - Example naming conventions:
+    - VPC: `${var.environment}-vpc`
+    - Lambda: `${var.environment}-fn-${var.name}`
+    - S3 Bucket: `${var.environment}-${var.project}-bucket`
+
+  10. Documentation & Onboarding
+  - Maintain `shared/docs/` with architecture, CI/CD, and state backend references.
+  - Keep diagrams up to date in `shared/diagrams/`
+
+  11. Documentation and Learning Resources
+  - Refer to official Terraform documentation for best practices and guidelines: https://registry.terraform.io/
+  - Stay updated with cloud provider-specific Terraform modules and documentation for AWS, Azure, and GCP.

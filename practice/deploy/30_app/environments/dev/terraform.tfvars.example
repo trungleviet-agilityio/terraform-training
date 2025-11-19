@@ -1,0 +1,54 @@
+# Core Configuration
+# ===================
+# These variables can be set via:
+#   1. TF_VAR_* environment variables (recommended for local development)
+#   2. AWS Secrets Manager (/practice/{env}/terraform-vars-30_app) for CI/CD
+#   3. This terraform.tfvars file (local development only, gitignored)
+#
+# Variables have defaults in variables.tf. Override them here or via environment variables.
+# For local development, copy this file to terraform.tfvars and set your values.
+
+# Uncomment and set your values, or use TF_VAR_* environment variables:
+# aws_region   = "your-aws-region"      # e.g., "ap-southeast-1" (or set TF_VAR_aws_region)
+# project_name = "your-project-name"    # e.g., "tt-practice" (or set TF_VAR_project_name)
+# environment  = "your-environment"     # e.g., "dev", "stage", "prod" (or set TF_VAR_environment)
+
+# Optional: Deployment mode for Lambda functions
+# Can be set via TF_VAR_deploy_mode environment variable
+# Options: "zip" (default) or "container"
+# Uncomment to override:
+# deploy_mode = "zip"
+
+# Optional: EventBridge Schedule Expression
+# Can be set via TF_VAR_eventbridge_schedule_expression environment variable
+# Examples:
+#   - "rate(5 minutes)"  - Every 5 minutes
+#   - "rate(1 hour)"     - Every hour
+#   - "cron(0 12 * * ? *)" - Daily at 12:00 PM UTC
+#   - "" (empty) - Skip EventBridge schedule creation
+# Uncomment to override:
+# eventbridge_schedule_expression = "rate(5 minutes)"
+
+# Backend Configuration
+# =====================
+# The backend configuration is managed via backend.tfvars file.
+# 
+# Initialization:
+#   1. Copy backend.tfvars.example to backend.tfvars (if needed)
+#   2. Update bucket name in backend.tfvars with your AWS account ID
+#   3. Initialize with: terraform init -backend-config=backend.tfvars
+#
+# The backend.tfvars file contains environment-specific backend configuration:
+#   - bucket: S3 bucket name for state storage (environment-specific)
+#   - Other backend config (key, region, encrypt, dynamodb_table) is in providers.tf
+#
+# Note: The bucket name pattern is: tt-practice-tf-state-{environment}-{account-id}
+#       Replace {account-id} with your AWS account ID
+
+# Remote State Dependencies
+# ==========================
+# SQS queue ARN is automatically retrieved from 20_infra layer remote state
+# Make sure 20_infra layer is deployed before deploying 30_app layer
+#
+# The remote state bucket name should match the one configured in backend.tfvars
+# for consistency across layers in the same environment
